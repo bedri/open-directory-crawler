@@ -46,8 +46,7 @@ func listFTPDirectory(rawURL string) ([]parser.FileLink, error) {
 	var c *ftp.ServerConn
 	if isTLS {
 		tlsCfg := &tls.Config{
-			InsecureSkipVerify: true,
-			ServerName:         u.Hostname(),
+			ServerName: u.Hostname(),
 		}
 		c, err = ftp.Dial(host, ftp.DialWithTimeout(30*time.Second), ftp.DialWithExplicitTLS(tlsCfg))
 		if err != nil {

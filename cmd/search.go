@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/bedri/open-directory-crawler/internal/models"
 	"github.com/bedri/open-directory-crawler/internal/storage"
@@ -37,9 +39,25 @@ var searchCmd = &cobra.Command{
 		query := args[0]
 		var re *regexp.Regexp
 		if searchRegex {
-			re, err = regexp.Compile(query)
-			if err != nil {
-				log.Fatalf("invalid regex: %v", err)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			type regexResult struct {
+				re  *regexp.Regexp
+				err error
+			}
+			ch := make(chan regexResult, 1)
+			go func() {
+				r, e := regexp.Compile(query)
+				ch <- regexResult{r, e}
+			}()
+			select {
+			case res := <-ch:
+				re, err = res.re, res.err
+				if err != nil {
+					log.Fatalf("invalid regex: %v", err)
+				}
+			case <-ctx.Done():
+				log.Fatalf("regex compilation timed out (possible ReDoS): %s", query)
 			}
 		} else {
 			query = strings.ToLower(query)

@@ -20,6 +20,12 @@ import (
 	"github.com/bedri/open-directory-crawler/internal/soundclick"
 )
 
+const maxResponseSize = 10 << 20
+
+func readAllLimited(r io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(r, maxResponseSize))
+}
+
 type Result struct {
 	URL      string `json:"url"`
 	Title    string `json:"title"`
@@ -218,7 +224,7 @@ func (f *Finder) searchGoogleAPI() ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 
 		var gRes googleAPIResponse
@@ -260,7 +266,7 @@ func (f *Finder) searchGoogleScrape(query string, pages int) ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 
 		results := parseGoogleResults(string(body), query)
@@ -316,7 +322,7 @@ func (f *Finder) searchBingAPI() ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 
 		var bRes bingAPIResponse
@@ -361,7 +367,7 @@ func (f *Finder) searchBingScrape() ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 
 		matches := bingLinkRe.FindAllStringSubmatch(string(body), -1)
@@ -412,7 +418,7 @@ func (f *Finder) SearchDuckDuckGo() ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 
 		matches := ddgRe.FindAllStringSubmatch(string(body), -1)
@@ -456,7 +462,7 @@ func (f *Finder) SearchSearXNG() ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 
 		var sRes searxngResponse
@@ -499,7 +505,7 @@ func (f *Finder) SearchShodan() ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 
 		var sRes shodanResponse
@@ -545,7 +551,7 @@ func (f *Finder) ScrapeAggregators() ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 
 		re := regexp.MustCompile(`(https?://[^\s"<>]+)`)
@@ -589,7 +595,7 @@ func (f *Finder) IsOpenDirectory(rawURL string) bool {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := readAllLimited(resp.Body)
 	bodyStr := string(body)
 
 	indicators := []string{
@@ -642,7 +648,7 @@ func (f *Finder) QuickProfile(rawURL string) (map[models.FileCategory]int, error
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readAllLimited(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -713,7 +719,7 @@ func (f *Finder) DiscoverByType(category string) ([]Result, error) {
 			if err != nil {
 				continue
 			}
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := readAllLimited(resp.Body)
 			resp.Body.Close()
 			var gRes googleAPIResponse
 			if json.Unmarshal(body, &gRes) == nil {
@@ -748,7 +754,7 @@ func (f *Finder) DiscoverByType(category string) ([]Result, error) {
 			if err != nil {
 				continue
 			}
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := readAllLimited(resp.Body)
 			resp.Body.Close()
 			var bRes bingAPIResponse
 			if json.Unmarshal(body, &bRes) == nil {
@@ -769,7 +775,7 @@ func (f *Finder) DiscoverByType(category string) ([]Result, error) {
 			if err != nil {
 				continue
 			}
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := readAllLimited(resp.Body)
 			resp.Body.Close()
 
 			matches := bingLinkRe.FindAllStringSubmatch(string(body), -1)
@@ -809,7 +815,7 @@ func (f *Finder) DiscoverByType(category string) ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 
 		matches := ddgRe.FindAllStringSubmatch(string(body), -1)
@@ -841,7 +847,7 @@ func (f *Finder) DiscoverByType(category string) ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 		var sRes searxngResponse
 		if json.Unmarshal(body, &sRes) == nil {
@@ -905,7 +911,7 @@ func (f *Finder) SearchFTP() ([]Result, error) {
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAllLimited(resp.Body)
 		resp.Body.Close()
 		ddgRe := regexp.MustCompile(`<a[^>]+class="result__a"[^>]+href="(https?://[^"]+)"`)
 		matches := ddgRe.FindAllStringSubmatch(string(body), -1)

@@ -18,6 +18,7 @@ var (
 	apiDBPath string
 	apiAddr   string
 	apiCORS   bool
+	apiToken  string
 )
 
 var apiCmd = &cobra.Command{
@@ -44,8 +45,11 @@ Endpoints:
 		}
 		defer store.Close()
 
-		handler := setupAPIHandler(store, apiCORS)
+		handler := setupAPIHandler(store, apiCORS, apiToken)
 
+		if apiToken != "" {
+			log.Printf("API token auth enabled")
+		}
 		log.Printf("API server running on %s", apiAddr)
 		printAPIEpilog()
 
@@ -63,7 +67,7 @@ type apiError struct {
 	Error string `json:"error"`
 }
 
-func setupAPIHandler(store *storage.Store, cors bool) http.Handler {
+func setupAPIHandler(store *storage.Store, cors bool, token string) http.Handler {
 	mux := http.NewServeMux()
 	srv := &apiServer{store: store}
 
@@ -79,10 +83,14 @@ func setupAPIHandler(store *storage.Store, cors bool) http.Handler {
 	mux.HandleFunc("/search", srv.handleSearch)
 	mux.Handle("/", webui.Handler())
 
-	if cors {
-		return corsMiddleware(mux)
+	var handler http.Handler = mux
+	if token != "" {
+		handler = authMiddleware(token, handler)
 	}
-	return mux
+	if cors {
+		handler = corsMiddleware(handler)
+	}
+	return handler
 }
 
 func printAPIEpilog() {
@@ -386,7 +394,10 @@ func (s *apiServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	limit := 100
 	fmt.Sscanf(r.URL.Query().Get("limit"), "%d", &limit)
-	if limit > 0 && len(matched) > limit {
+	if limit <= 0 || limit > 2000 {
+		limit = 2000
+	}
+	if len(matched) > limit {
 		matched = matched[:limit]
 	}
 
@@ -400,11 +411,28 @@ func (s *apiServer) handleNotFound(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 404, apiError{"not found"})
 }
 
+func authMiddleware(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != token {
+			writeJSON(w, 401, apiError{"unauthorized"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(204)
 			return
@@ -416,6 +444,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 func init() {
 	rootCmd.AddCommand(apiCmd)
 	apiCmd.Flags().StringVar(&apiDBPath, "db", "./odk-reader.db", "database path (reader, sync edilen)")
-	apiCmd.Flags().StringVarP(&apiAddr, "addr", "a", ":40444", "listen address")
+	apiCmd.Flags().StringVarP(&apiAddr, "addr", "a", "127.0.0.1:40444", "listen address (use :40444 for all interfaces)")
 	apiCmd.Flags().BoolVar(&apiCORS, "cors", false, "enable CORS headers")
+	apiCmd.Flags().StringVar(&apiToken, "token", "", "Bearer token for API authentication")
 }

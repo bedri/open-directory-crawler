@@ -30,6 +30,7 @@ var (
 	agentOnce           bool
 	agentLog            string
 	agentAPIAddr        string
+	agentAPIToken       string
 	agentDownload       bool
 	agentDownloadMax    int64
 	agentDownloadLimit  int
@@ -65,7 +66,7 @@ var agentCmd = &cobra.Command{
 
 		if agentAPIAddr != "" {
 			go func() {
-				handler := setupAPIHandler(store, true)
+				handler := setupAPIHandler(store, false, agentAPIToken)
 				logger.Printf("API server running on %s", agentAPIAddr)
 				if err := http.ListenAndServe(agentAPIAddr, handler); err != nil {
 					logger.Printf("api server error: %v", err)
@@ -224,7 +225,7 @@ func processPending(store *storage.Store, logger *log.Logger, cfg crawler.Config
 			}
 		}
 
-		logger.Printf("Crawling: %s", d.URL)
+		logger.Printf("Crawling: %s", crawler.RedactURL(d.URL))
 		d.Status = models.StatusScanning
 		store.SaveDirectory(d)
 
@@ -269,6 +270,7 @@ func init() {
 	agentCmd.Flags().BoolVar(&agentOnce, "once", false, "tek sefer çalış ve çık")
 	agentCmd.Flags().StringVar(&agentLog, "log", "./odk-agent.log", "log file path")
 	agentCmd.Flags().StringVar(&agentAPIAddr, "api", "", "REST API bind address (örn: :40444)")
+	agentCmd.Flags().StringVar(&agentAPIToken, "api-token", "", "Bearer token for API authentication")
 	agentCmd.Flags().BoolVar(&agentDownload, "download", false, "download small files for metadata extraction")
 	agentCmd.Flags().Int64Var(&agentDownloadMax, "download-max", 10<<20, "max download size in bytes (default 10MB)")
 	agentCmd.Flags().IntVar(&agentDownloadLimit, "download-limit", 100, "max files to download per crawl cycle")

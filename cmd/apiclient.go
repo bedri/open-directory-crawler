@@ -5,19 +5,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/bedri/open-directory-crawler/internal/models"
 )
 
-var apiBase = "http://localhost:40444"
+var apiBase = getEnvDefault("ODK_API_URL", "http://localhost:40444")
 
 type apiClient struct {
-	url string
+	url   string
+	token string
 }
 
 func newAPIClient() *apiClient {
-	return &apiClient{url: apiBase}
+	return &apiClient{url: apiBase, token: os.Getenv("ODK_API_TOKEN")}
 }
 
 func (c *apiClient) ping() bool {
@@ -30,9 +32,20 @@ func (c *apiClient) ping() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+func getEnvDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func (c *apiClient) getJSON(path string, v any) error {
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(c.url + path)
+	req, _ := http.NewRequest("GET", c.url+path, nil)
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

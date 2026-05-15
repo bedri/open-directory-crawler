@@ -14,6 +14,8 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+const maxResponseSize = 10 << 20
+
 type Track struct {
 	SongID   int    `json:"song_id"`
 	Title    string `json:"title"`
@@ -68,9 +70,9 @@ func (c *Client) Search(keyword string, limit int) ([]Track, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return nil, fmt.Errorf("search request: %w", err)
 	}
 
 	tracks := parseSearchResults(string(body), limit)
@@ -175,7 +177,7 @@ func (c *Client) GetTrackInfo(songID int) (*Track, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("read track page: %w", err)
 	}
@@ -238,7 +240,7 @@ func (c *Client) GetAudioURL(songID int) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if m := re.FindString(string(body)); m != "" {
 		return m, nil
 	}

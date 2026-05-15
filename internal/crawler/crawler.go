@@ -19,6 +19,8 @@ import (
 	"github.com/bedri/open-directory-crawler/internal/storage"
 )
 
+const maxResponseSize = 10 << 20
+
 type DownloadConfig struct {
 	Enabled  bool
 	MaxSize  int64
@@ -132,14 +134,14 @@ func (c *Crawler) crawlPage(wg *sync.WaitGroup, job models.CrawlJob) {
 	if strings.HasPrefix(job.URL, "ftp://") || strings.HasPrefix(job.URL, "ftps://") {
 		l, err := listFTPDirectory(job.URL)
 		if err != nil {
-			log.Printf("ftp error %s: %v", job.URL, err)
+			log.Printf("ftp error %s: %v", RedactURL(job.URL), err)
 			return
 		}
 		links = l
 	} else {
 		body, err := fetchURL(job.URL, c.cfg.UserAgent, c.cfg.Timeout)
 		if err != nil {
-			log.Printf("fetch error %s: %v", job.URL, err)
+			log.Printf("fetch error %s: %v", RedactURL(job.URL), err)
 			return
 		}
 
@@ -246,7 +248,7 @@ func (c *Crawler) crawlPage(wg *sync.WaitGroup, job models.CrawlJob) {
 			continue
 		}
 		if err := c.store.SaveFileEntry(f); err != nil {
-			log.Printf("save file error: %v", err)
+			log.Printf("save file error: %v %s", err, RedactURL(f.URL))
 		}
 	}
 
@@ -324,11 +326,20 @@ func fetchURL(rawURL, ua string, timeout time.Duration) (string, error) {
 	}
 
 	buf := new(strings.Builder)
-	_, err = io.Copy(buf, resp.Body)
+	_, err = io.Copy(buf, io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+func RedactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err == nil && u.User != nil {
+		u.User = url.UserPassword(u.User.Username(), "****")
+		return u.String()
+	}
+	return raw
 }
 
 func urlToID(rawURL string) string {
