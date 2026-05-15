@@ -118,8 +118,8 @@ func (s *apiServer) handleDirs(w http.ResponseWriter, r *http.Request) {
 
 	if path != "" && strings.HasPrefix(path, "/") {
 		parts := strings.Split(path, "/")
-		if len(parts) >= 2 && parts[1] == "files" {
-			dirID := parts[0]
+		if len(parts) >= 3 && parts[2] == "files" {
+			dirID := parts[1]
 			files, err := s.store.GetFilesByDir(dirID)
 			if err != nil {
 				writeJSON(w, 500, apiError{err.Error()})

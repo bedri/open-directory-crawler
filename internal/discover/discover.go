@@ -60,6 +60,9 @@ func New() *Finder {
 }
 
 func (f *Finder) randomUA() string {
+	if len(f.userAgents) == 0 {
+		return "ODK/1.0"
+	}
 	return f.userAgents[rand.Intn(len(f.userAgents))]
 }
 

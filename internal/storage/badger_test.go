@@ -197,3 +197,50 @@ func TestEmptyStore(t *testing.T) {
 		t.Error("expected empty files")
 	}
 }
+
+func TestGetFilesByExt(t *testing.T) {
+	s := newTestStore(t)
+	s.SaveFileEntry(&models.FileEntry{ID: "d1:a.mp3", DirectoryID: "d1", Name: "a.mp3", Category: models.CategoryAudio, Ext: "mp3"})
+	s.SaveFileEntry(&models.FileEntry{ID: "d1:b.mp4", DirectoryID: "d1", Name: "b.mp4", Category: models.CategoryVideo, Ext: "mp4"})
+	s.SaveFileEntry(&models.FileEntry{ID: "d2:c.mp3", DirectoryID: "d2", Name: "c.mp3", Category: models.CategoryAudio, Ext: "mp3"})
+
+	mp3s, err := s.GetFilesByExt("mp3")
+	if err != nil {
+		t.Fatalf("GetFilesByExt: %v", err)
+	}
+	if len(mp3s) != 2 {
+		t.Errorf("got %d mp3 files, want 2", len(mp3s))
+	}
+
+	mp4s, _ := s.GetFilesByExt("mp4")
+	if len(mp4s) != 1 {
+		t.Errorf("got %d mp4 files, want 1", len(mp4s))
+	}
+
+	none, _ := s.GetFilesByExt("nonexistent")
+	if len(none) != 0 {
+		t.Errorf("got %d files for nonexistent ext, want 0", len(none))
+	}
+}
+
+func TestGetFilesByCategoryEmpty(t *testing.T) {
+	s := newTestStore(t)
+	files, err := s.GetFilesByCategory(models.CategoryAudio)
+	if err != nil {
+		t.Fatalf("GetFilesByCategory: %v", err)
+	}
+	if len(files) != 0 {
+		t.Errorf("got %d files, want 0", len(files))
+	}
+}
+
+func TestGetFilesByExtEmpty(t *testing.T) {
+	s := newTestStore(t)
+	files, err := s.GetFilesByExt("mp3")
+	if err != nil {
+		t.Fatalf("GetFilesByExt: %v", err)
+	}
+	if len(files) != 0 {
+		t.Errorf("got %d files, want 0", len(files))
+	}
+}
