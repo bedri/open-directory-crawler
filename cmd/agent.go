@@ -28,6 +28,7 @@ var (
 	agentInterval       int
 	agentFile           string
 	agentOnce           bool
+	agentReindexHours   int
 	agentLog            string
 	agentAPIAddr        string
 	agentAPIToken       string
@@ -131,8 +132,8 @@ var agentCmd = &cobra.Command{
 					} else {
 						logger.Printf("Reader DB synced")
 					}
-					logger.Printf("Resetting all dirs for re-crawl...")
-					resetAllDirs(store, logger)
+					logger.Printf("Re-scheduling stale dirs for re-crawl (≥%dh old)...", agentReindexHours)
+					resetStaleDirs(store, logger, agentReindexHours)
 				}
 				break
 			}
@@ -244,17 +245,33 @@ func processPending(store *storage.Store, logger *log.Logger, cfg crawler.Config
 	return processed
 }
 
-func resetAllDirs(store *storage.Store, logger *log.Logger) {
+func resetStaleDirs(store *storage.Store, logger *log.Logger, minHours int) {
 	dirs, err := store.ListDirectories()
 	if err != nil {
 		logger.Printf("reset error: %v", err)
 		return
 	}
+	cutoff := time.Now().Add(-time.Duration(minHours) * time.Hour)
+	reset := 0
+	errored := 0
 	for _, d := range dirs {
+		if d.Status == models.StatusError {
+			d.Status = models.StatusPending
+			store.SaveDirectory(d)
+			errored++
+			continue
+		}
+		if d.Status != models.StatusDone {
+			continue
+		}
+		if minHours > 0 && !d.ScannedAt.IsZero() && d.ScannedAt.After(cutoff) {
+			continue
+		}
 		d.Status = models.StatusPending
 		store.SaveDirectory(d)
+		reset++
 	}
-	logger.Printf("Reset %d dirs to pending", len(dirs))
+	logger.Printf("Re-scheduled %d dirs (errored: %d) for re-crawl", reset, errored)
 }
 
 func init() {
@@ -268,6 +285,7 @@ func init() {
 	agentCmd.Flags().IntVarP(&agentInterval, "interval", "I", 60, "seconds between rounds")
 	agentCmd.Flags().StringVarP(&agentFile, "file", "f", "", "URL listesi dosyası")
 	agentCmd.Flags().BoolVar(&agentOnce, "once", false, "tek sefer çalış ve çık")
+	agentCmd.Flags().IntVar(&agentReindexHours, "reindex-hours", 24, "kaç saat sonra yeniden tara (0=tümünü sıfırla)")
 	agentCmd.Flags().StringVar(&agentLog, "log", "./odk-agent.log", "log file path")
 	agentCmd.Flags().StringVar(&agentAPIAddr, "api", "", "REST API bind address (örn: :40444)")
 	agentCmd.Flags().StringVar(&agentAPIToken, "api-token", "", "Bearer token for API authentication")

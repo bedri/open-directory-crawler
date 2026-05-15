@@ -249,6 +249,7 @@ func (s *Store) GetStats() (*models.Stats, error) {
 	st := &models.Stats{
 		CategoryCounts: make(map[models.FileCategory]int64),
 		ExtCounts:      make(map[string]int),
+		StatusCounts:   make(map[models.DirStatus]int),
 	}
 
 	err := s.db.View(func(txn *badger.Txn) error {
@@ -264,6 +265,7 @@ func (s *Store) GetStats() (*models.Stats, error) {
 				return err
 			}
 			st.TotalDirectories++
+			st.StatusCounts[d.Status]++
 		}
 
 		prefix2 := []byte("file:")

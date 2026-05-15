@@ -207,7 +207,8 @@ async function loadDash(refresh){
   el._loaded=true
   if(!refresh)el.innerHTML='<div class="loading"><div class="spinner"></div></div>'
   try{
-    const[stats,analysis]=await Promise.all([api('/stats'),api('/stats/analysis').catch(()=>null)])
+    const[stats,analysis,agentStatus]=await Promise.all([api('/stats'),api('/stats/analysis').catch(()=>null),api('/agent/status').catch(()=>null)])
+    const sc=agentStatus||{}
     const cats=stats.category_counts||{}
     const topExts=Object.entries(stats.ext_counts||{}).sort((a,b)=>b[1]-a[1]).slice(0,10)
     const tlds=analysis?.tld_stats||{}
@@ -232,6 +233,7 @@ async function loadDash(refresh){
         <div class="stat"><div class="stat-label">Dosya</div><div class="stat-value cyan" id="stat-files">0</div><div class="stat-sub" id="stat-files-sub">0 dosya/dizin</div></div>
         <div class="stat"><div class="stat-label">Boyut</div><div class="stat-value emerald" id="stat-size">0 B</div><div class="stat-sub" id="stat-size-sub">0 B/dosya</div></div>
         <div class="stat"><div class="stat-label">Keyword</div><div class="stat-value violet" id="stat-kw">0</div><div class="stat-sub">benzersiz kelime</div></div>
+        <div class="stat"><div class="stat-label">Sırada</div><div class="stat-value gold" id="stat-queue" style="font-size:28px">0</div><div class="stat-sub" id="stat-queue-sub">0 pending · 0 error</div></div>
       </div>
       <div class="grid grid-2" style="margin-bottom:16px">
         <div class="card"><div class="card-title">Kategori Dağılımı</div><div class="treemap">${treemapHtml}</div></div>
@@ -249,6 +251,12 @@ async function loadDash(refresh){
     const sizeEl=document.getElementById('stat-size');const sizeTarget=fmt(stats.total_size);sizeEl.textContent=sizeTarget
     document.getElementById('stat-size-sub').textContent=stats.total_files>0?fmt(stats.total_size/stats.total_files)+'/dosya':'0 B/dosya'
     if(analysis?.keywords?.length)animateValue(document.getElementById('stat-kw'),analysis.keywords.length)
+    const queueEl=document.getElementById('stat-queue')
+    const queueSub=document.getElementById('stat-queue-sub')
+    const pending=sc.pending||0,errCount=sc.error||0,scanning=sc.scanning||0
+    queueEl.textContent=pending.toLocaleString()
+    queueSub.textContent=`${pending} pending · ${scanning} scanning · ${errCount} error`
+    if(sc.done){document.getElementById('stat-dirs').textContent=((sc.done||0)+pending+scanning+errCount).toLocaleString()}
   }catch(e){if(!refresh)el.innerHTML=`<div class="empty">Hata: ${e.message}</div>`}
 }
 

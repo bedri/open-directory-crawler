@@ -64,6 +64,7 @@ type Stats struct {
 	TotalSize        int64                  `json:"total_size"`
 	CategoryCounts   map[FileCategory]int64 `json:"category_counts"`
 	ExtCounts        map[string]int         `json:"ext_counts"`
+	StatusCounts     map[DirStatus]int      `json:"status_counts"`
 }
 
 type AnalysisReport struct {

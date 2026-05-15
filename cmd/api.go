@@ -81,6 +81,7 @@ func setupAPIHandler(store *storage.Store, cors bool, token string) http.Handler
 	mux.HandleFunc("/dirs", srv.handleDirs)
 	mux.HandleFunc("/files", srv.handleFiles)
 	mux.HandleFunc("/search", srv.handleSearch)
+	mux.HandleFunc("/agent/status", srv.handleAgentStatus)
 	mux.Handle("/", webui.Handler())
 
 	var handler http.Handler = mux
@@ -343,6 +344,19 @@ func (s *apiServer) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Total-Count", strconv.Itoa(total))
 	writeJSON(w, 200, files)
+}
+
+func (s *apiServer) handleAgentStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, apiError{"method not allowed"})
+		return
+	}
+	st, err := s.store.GetStats()
+	if err != nil {
+		writeJSON(w, 500, apiError{err.Error()})
+		return
+	}
+	writeJSON(w, 200, st.StatusCounts)
 }
 
 func (s *apiServer) handleSearch(w http.ResponseWriter, r *http.Request) {
