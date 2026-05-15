@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"strings"
@@ -40,7 +41,21 @@ func listFTPDirectory(rawURL string) ([]parser.FileLink, error) {
 		path = "/"
 	}
 
-	c, err := ftp.Dial(host, ftp.DialWithTimeout(30*time.Second))
+	isTLS := strings.HasPrefix(rawURL, "ftps://")
+
+	var c *ftp.ServerConn
+	if isTLS {
+		tlsCfg := &tls.Config{
+			InsecureSkipVerify: true,
+			ServerName:         u.Hostname(),
+		}
+		c, err = ftp.Dial(host, ftp.DialWithTimeout(30*time.Second), ftp.DialWithExplicitTLS(tlsCfg))
+		if err != nil {
+			c, err = ftp.Dial(host, ftp.DialWithTimeout(30*time.Second), ftp.DialWithTLS(tlsCfg))
+		}
+	} else {
+		c, err = ftp.Dial(host, ftp.DialWithTimeout(30*time.Second))
+	}
 	if err != nil {
 		return nil, err
 	}

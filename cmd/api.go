@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/bedri/open-directory-crawler/internal/models"
@@ -305,15 +306,34 @@ func (s *apiServer) handleFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 100000
-	fmt.Sscanf(r.URL.Query().Get("limit"), "%d", &limit)
-	if limit > 0 && len(files) > limit {
-		files = files[:limit]
+	total := len(files)
+
+	offset := 0
+	fmt.Sscanf(r.URL.Query().Get("offset"), "%d", &offset)
+	if offset < 0 {
+		offset = 0
 	}
+
+	limit := 100
+	fmt.Sscanf(r.URL.Query().Get("limit"), "%d", &limit)
+	if limit < 1 || limit > 10000 {
+		limit = 100
+	}
+
+	if offset > total {
+		offset = total
+	}
+
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	files = files[offset:end]
 
 	if files == nil {
 		files = []*models.FileEntry{}
 	}
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
 	writeJSON(w, 200, files)
 }
 

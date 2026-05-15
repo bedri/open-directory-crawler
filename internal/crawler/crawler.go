@@ -129,7 +129,7 @@ func (c *Crawler) crawlPage(wg *sync.WaitGroup, job models.CrawlJob) {
 	var title string
 	var links []parser.FileLink
 
-	if strings.HasPrefix(job.URL, "ftp://") {
+	if strings.HasPrefix(job.URL, "ftp://") || strings.HasPrefix(job.URL, "ftps://") {
 		l, err := listFTPDirectory(job.URL)
 		if err != nil {
 			log.Printf("ftp error %s: %v", job.URL, err)

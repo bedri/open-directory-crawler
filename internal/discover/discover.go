@@ -17,6 +17,7 @@ import (
 	"github.com/bedri/open-directory-crawler/internal/envutil"
 	"github.com/bedri/open-directory-crawler/internal/models"
 	"github.com/bedri/open-directory-crawler/internal/parser"
+	"github.com/bedri/open-directory-crawler/internal/soundclick"
 )
 
 type Result struct {
@@ -111,6 +112,13 @@ var TypeDorks = map[string][]string{
 	},
 }
 
+var FTPDorks = []string{
+	`"Index of /" ftp -inurl:(jsp|php|asp)`,
+	`intitle:"index of" ftp://`,
+	`"Index of /" "ftp" "parent directory"`,
+	`"Directory Listing" ftp://`,
+}
+
 var Dorks = []string{
 	`intitle:"index of" "parent directory" -inurl:(jsp|php|asp|aspx|cgi)`,
 	`intitle:"index of /" "name" "last modified" "size"`,
@@ -160,6 +168,16 @@ func (f *Finder) DiscoverAll() ([]Result, error) {
 	}
 
 	results, _ = f.SearchShodan()
+	for _, r := range results {
+		addUnique(r)
+	}
+
+	results, _ = f.SearchSoundClick("")
+	for _, r := range results {
+		addUnique(r)
+	}
+
+	results, _ = f.SearchFTP()
 	for _, r := range results {
 		addUnique(r)
 	}
@@ -834,6 +852,13 @@ func (f *Finder) DiscoverByType(category string) ([]Result, error) {
 		time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
 	}
 
+	if category == "audio" {
+		results, _ := f.SearchSoundClick("")
+		for _, r := range results {
+			addUnique(r)
+		}
+	}
+
 	targetCat := models.FileCategory(category)
 	var verified []Result
 	for _, r := range all {
@@ -847,6 +872,91 @@ func (f *Finder) DiscoverByType(category string) ([]Result, error) {
 	}
 
 	return verified, nil
+}
+
+func (f *Finder) SearchFTP() ([]Result, error) {
+	var all []Result
+	seen := map[string]bool{}
+
+	addFTP := func(r Result) {
+		u := strings.TrimRight(r.URL, "/")
+		if !seen[u] {
+			seen[u] = true
+			all = append(all, r)
+		}
+	}
+
+	for _, dork := range FTPDorks {
+		results, _ := f.searchGoogleScrape(dork, 1)
+		for _, r := range results {
+			if strings.HasPrefix(r.URL, "ftp://") || strings.HasPrefix(r.URL, "ftps://") {
+				addFTP(r)
+			}
+		}
+		time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
+	}
+
+	for _, dork := range FTPDorks {
+		searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(dork))
+		req, _ := http.NewRequest("GET", searchURL, nil)
+		req.Header.Set("User-Agent", f.randomUA())
+		req.Header.Set("Accept", "text/html,application/xhtml+xml")
+		resp, err := f.client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		ddgRe := regexp.MustCompile(`<a[^>]+class="result__a"[^>]+href="(https?://[^"]+)"`)
+		matches := ddgRe.FindAllStringSubmatch(string(body), -1)
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			decoded, _ := url.QueryUnescape(m[1])
+			if strings.HasPrefix(decoded, "ftp://") || strings.HasPrefix(decoded, "ftps://") {
+				addFTP(Result{URL: decoded, Source: "duckduckgo"})
+			}
+		}
+		time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
+	}
+
+	return all, nil
+}
+
+func (f *Finder) SearchSoundClick(keyword string) ([]Result, error) {
+	client := soundclick.New()
+	if keyword == "" {
+		keyword = "mp3"
+	}
+	tracks, err := client.Search(keyword, 30)
+	if err != nil {
+		return nil, err
+	}
+	var results []Result
+	for _, t := range tracks {
+		audioURL := t.AudioURL
+		if audioURL == "" {
+			info, err := client.GetTrackInfo(t.SongID)
+			if err == nil && info.AudioURL != "" {
+				audioURL = info.AudioURL
+			}
+			if audioURL == "" {
+				u, err := client.GetAudioURL(t.SongID)
+				if err == nil {
+					audioURL = u
+				}
+			}
+		}
+		if audioURL != "" {
+			results = append(results, Result{
+				URL:    audioURL,
+				Source: "soundclick",
+				Title:  fmt.Sprintf("%s - %s", t.Artist, t.Title),
+			})
+		}
+	}
+	return results, nil
 }
 
 func (f *Finder) SaveResults(results []Result, path string) error {

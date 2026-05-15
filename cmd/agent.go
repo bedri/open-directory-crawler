@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -149,6 +150,33 @@ func importURLs(store *storage.Store, path string, logger *log.Logger) {
 		return
 	}
 	defer f.Close()
+
+	header := make([]byte, 2)
+	f.Read(header)
+	f.Seek(0, 0)
+
+	if header[0] == '[' {
+		var dirs []models.ImportedDir
+		if err := json.NewDecoder(f).Decode(&dirs); err != nil {
+			logger.Printf("JSON parse error: %v", err)
+			return
+		}
+		imported := 0
+		skipped := 0
+		for _, d := range dirs {
+			dir := dirFromURL(d.URL)
+			existing, err := store.GetDirectory(dir.ID)
+			if err == nil && existing != nil {
+				skipped++
+				continue
+			}
+			if err := store.SaveDirectory(dir); err == nil {
+				imported++
+			}
+		}
+		logger.Printf("Imported %d URLs from %s (%d skipped)", imported, path, skipped)
+		return
+	}
 
 	sc := bufio.NewScanner(f)
 	imported := 0

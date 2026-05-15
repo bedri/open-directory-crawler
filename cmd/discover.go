@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -56,17 +57,33 @@ var discoverCmd = &cobra.Command{
 			}
 			defer store.Close()
 
+			trimmed := strings.TrimSpace(string(data))
 			saved := 0
-			for _, line := range strings.Split(string(data), "\n") {
-				line = strings.TrimSpace(line)
-				if line == "" || strings.HasPrefix(line, "#") {
-					continue
+
+			if strings.HasPrefix(trimmed, "[") {
+				var dirs []models.ImportedDir
+				if err := json.Unmarshal([]byte(trimmed), &dirs); err != nil {
+					log.Fatalf("JSON parse error: %v", err)
 				}
-				dir := dirFromURL(line)
-				if err := store.SaveDirectory(dir); err == nil {
-					saved++
+				for _, d := range dirs {
+					dir := dirFromURL(d.URL)
+					if err := store.SaveDirectory(dir); err == nil {
+						saved++
+					}
+				}
+			} else {
+				for _, line := range strings.Split(trimmed, "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					dir := dirFromURL(line)
+					if err := store.SaveDirectory(dir); err == nil {
+						saved++
+					}
 				}
 			}
+
 			fmt.Printf("%d URL veritabanına kaydedildi.\n", saved)
 			fmt.Println("Crawl etmek için: odk crawl <url>")
 			return

@@ -16,8 +16,24 @@ export_*
 *.log
 odk-agent.log
 
-# SQL dump (313MB, not needed for git)
+# SQL dumps
 kristalt_hoopss_none_music.sql
+hoopss.sql
+hoopss.sql.bz2
+hoopss_nomusic.sql
+hoopss_all_sitelinks.sql
+hoopss_dirs.json
+kristalt_server.sql
+
+# Old backup/site dirs
+public_html/
+devel/
+kutuphane/
+
+# Tarballs
+hoopss.devel.tar.bz2
+hoopss.old.kutuphane.tar.bz2
+*.tar.bz2
 
 # Old system service file (moved to user service)
 odk-agent.service

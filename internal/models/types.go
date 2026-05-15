@@ -106,3 +106,9 @@ type EduBreakdown struct {
 	TotalFiles int64                    `json:"total_files"`
 	Categories map[FileCategory]int64   `json:"categories"`
 }
+
+type ImportedDir struct {
+	URL      string `json:"url"`
+	Category string `json:"category,omitempty"`
+	Source   string `json:"source,omitempty"`
+}

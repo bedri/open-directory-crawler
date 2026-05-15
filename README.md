@@ -13,7 +13,7 @@ Open directory'leri keşfeden, tarayan, kategorize eden ve isteğe bağlı Googl
 - **Analyze** — Keyword extraction, TLD istatistikleri, edu breakdown, wordlist export
 - **Google Drive** — Apps Script webhook + queue mode ile Drive yedekleme (günde 100 dosya)
 - **Download** — İsteğe bağlı metadata extraction (SHA256, text, image, PDF)
-- **CLI** — `list`, `search`, `stats`, `analyze` komutları
+- **CLI** — `list`, `search`, `stats`, `analyze`, `import` komutları
 
 ## Gereksinimler
 
@@ -70,6 +70,22 @@ tail -f odk-agent.log
 
 # API sunucusu (standalone)
 ./odk api
+```
+
+### Import (SQL Dump → JSON → DB)
+
+```bash
+# 1. MySQL dump dosyasından URL'leri çıkar, JSON olarak kaydet
+./odk import sql --file hoopss.sql --output dirs.json
+
+# 2. JSON'u doğrudan veritabanına kaydet (agent çalışmıyorken)
+./odk discover --import dirs.json
+
+# Veya: SQL'den direkt DB'ye (tek adım)
+./odk import sql --file hoopss.sql --db ./odk.db
+
+# 3. Agent ile import et ve crawl'a başla
+./odk agent --db ./odk.db --reader-db ./odk-reader.db --file dirs.json --once
 ```
 
 ### API Endpoints
