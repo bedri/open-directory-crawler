@@ -298,8 +298,8 @@ func TestHandleFilesNoParams(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/files", nil)
 	srv.handleFiles(w, r)
-	if w.Code != 400 {
-		t.Errorf("code = %d, want 400", w.Code)
+	if w.Code != 200 {
+		t.Errorf("code = %d, want 200", w.Code)
 	}
 }
 
@@ -420,6 +420,231 @@ func TestHandleFilesLimit(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&files)
 	if len(files) != 3 {
 		t.Errorf("got %d files, want 3", len(files))
+	}
+}
+
+func TestHandleAnalysisNotFound(t *testing.T) {
+	srv := newTestAPIServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/analysis", nil)
+	srv.handleAnalysis(w, r)
+	if w.Code != 404 {
+		t.Errorf("code = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleAnalysisMethodNotAllowed(t *testing.T) {
+	srv := newTestAPIServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/stats/analysis", nil)
+	srv.handleAnalysis(w, r)
+	if w.Code != 405 {
+		t.Errorf("code = %d, want 405", w.Code)
+	}
+}
+
+func TestHandleAnalysisWithData(t *testing.T) {
+	srv := newTestAPIServer(t)
+	report := models.AnalysisReport{TotalFiles: 100, TotalDirs: 10}
+	if err := srv.store.SaveAnalysis(&report); err != nil {
+		t.Fatalf("SaveAnalysis: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/analysis", nil)
+	srv.handleAnalysis(w, r)
+	if w.Code != 200 {
+		t.Errorf("code = %d, want 200", w.Code)
+	}
+	var loaded models.AnalysisReport
+	if err := json.NewDecoder(w.Body).Decode(&loaded); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if loaded.TotalFiles != 100 || loaded.TotalDirs != 10 {
+		t.Errorf("report = %+v", loaded)
+	}
+}
+
+func TestHandleKeywordsNotFound(t *testing.T) {
+	srv := newTestAPIServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/keywords", nil)
+	srv.handleKeywords(w, r)
+	if w.Code != 404 {
+		t.Errorf("code = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleKeywordsWithLimit(t *testing.T) {
+	srv := newTestAPIServer(t)
+	report := models.AnalysisReport{
+		Keywords: []models.KeywordEntry{
+			{Word: "a", Count: 3},
+			{Word: "b", Count: 2},
+			{Word: "c", Count: 1},
+		},
+	}
+	srv.store.SaveAnalysis(&report)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/keywords?limit=2", nil)
+	srv.handleKeywords(w, r)
+	if w.Code != 200 {
+		t.Errorf("code = %d, want 200", w.Code)
+	}
+	var kw []models.KeywordEntry
+	json.NewDecoder(w.Body).Decode(&kw)
+	if len(kw) != 2 {
+		t.Errorf("got %d keywords, want 2", len(kw))
+	}
+}
+
+func TestHandleKeywordsDefaultLimit(t *testing.T) {
+	srv := newTestAPIServer(t)
+	entries := make([]models.KeywordEntry, 150)
+	for i := range entries {
+		entries[i] = models.KeywordEntry{Word: "x", Count: i}
+	}
+	srv.store.SaveAnalysis(&models.AnalysisReport{Keywords: entries})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/keywords", nil)
+	srv.handleKeywords(w, r)
+	if w.Code != 200 {
+		t.Errorf("code = %d, want 200", w.Code)
+	}
+	var kw []models.KeywordEntry
+	json.NewDecoder(w.Body).Decode(&kw)
+	if len(kw) != 100 {
+		t.Errorf("got %d keywords, want default 100", len(kw))
+	}
+}
+
+func TestHandleTLDsNotFound(t *testing.T) {
+	srv := newTestAPIServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/tlds", nil)
+	srv.handleTLDs(w, r)
+	if w.Code != 404 {
+		t.Errorf("code = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleTLDsWithData(t *testing.T) {
+	srv := newTestAPIServer(t)
+	report := models.AnalysisReport{
+		TLDStats: map[string]*models.TLDInfo{
+			"com": {Directories: 5, Files: 100},
+			"org": {Directories: 3, Files: 50},
+		},
+	}
+	srv.store.SaveAnalysis(&report)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/tlds", nil)
+	srv.handleTLDs(w, r)
+	if w.Code != 200 {
+		t.Errorf("code = %d, want 200", w.Code)
+	}
+	var tlds map[string]*models.TLDInfo
+	json.NewDecoder(w.Body).Decode(&tlds)
+	if tlds["com"] == nil || tlds["com"].Files != 100 {
+		t.Errorf("tlds = %+v", tlds)
+	}
+}
+
+func TestHandleEDUNotFound(t *testing.T) {
+	srv := newTestAPIServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/edu", nil)
+	srv.handleEduBreakdown(w, r)
+	if w.Code != 404 {
+		t.Errorf("code = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleEDUWithData(t *testing.T) {
+	srv := newTestAPIServer(t)
+	report := models.AnalysisReport{
+		EduBreakdown: &models.EduBreakdown{
+			TotalFiles: 42,
+			Categories: map[models.FileCategory]int64{"document": 30, "video": 12},
+		},
+	}
+	srv.store.SaveAnalysis(&report)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/edu", nil)
+	srv.handleEduBreakdown(w, r)
+	if w.Code != 200 {
+		t.Errorf("code = %d, want 200", w.Code)
+	}
+	var edu models.EduBreakdown
+	json.NewDecoder(w.Body).Decode(&edu)
+	if edu.TotalFiles != 42 {
+		t.Errorf("edu = %+v", edu)
+	}
+}
+
+func TestHandleDomainsNotFound(t *testing.T) {
+	srv := newTestAPIServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/domains", nil)
+	srv.handleDomains(w, r)
+	if w.Code != 404 {
+		t.Errorf("code = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleDomainsWithLimit(t *testing.T) {
+	srv := newTestAPIServer(t)
+	entries := make([]models.DomainEntry, 60)
+	for i := range entries {
+		entries[i] = models.DomainEntry{Domain: "x.com", Count: i}
+	}
+	srv.store.SaveAnalysis(&models.AnalysisReport{TopDomains: entries})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/stats/domains?limit=10", nil)
+	srv.handleDomains(w, r)
+	if w.Code != 200 {
+		t.Errorf("code = %d, want 200", w.Code)
+	}
+	var doms []models.DomainEntry
+	json.NewDecoder(w.Body).Decode(&doms)
+	if len(doms) != 10 {
+		t.Errorf("got %d domains, want 10", len(doms))
+	}
+}
+
+func TestHandleWordlistNotFound(t *testing.T) {
+	srv := newTestAPIServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/wordlist", nil)
+	srv.handleWordlist(w, r)
+	if w.Code != 404 {
+		t.Errorf("code = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleWordlistWithData(t *testing.T) {
+	srv := newTestAPIServer(t)
+	if err := srv.store.SaveWordlist([]byte("hello\nworld\n")); err != nil {
+		t.Fatalf("SaveWordlist: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/wordlist", nil)
+	srv.handleWordlist(w, r)
+	if w.Code != 200 {
+		t.Errorf("code = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/plain", ct)
+	}
+	body := w.Body.String()
+	if body != "hello\nworld\n" {
+		t.Errorf("body = %q", body)
 	}
 }
 

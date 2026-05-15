@@ -33,6 +33,12 @@ var listCmd = &cobra.Command{
 Filtreleme: --cat, --ext, --dir, --min-size, --max-size
 Çıktı: --json (stdout), --export (dosyaya .json veya .csv)`,
 	Run: func(cmd *cobra.Command, args []string) {
+		api := newAPIClient()
+		if api.ping() {
+			listViaAPI(api, cmd, args)
+			return
+		}
+
 		store, err := storage.New(listDBPath)
 		if err != nil {
 			log.Fatalf("storage error: %v", err)
@@ -93,7 +99,7 @@ Filtreleme: --cat, --ext, --dir, --min-size, --max-size
 
 func init() {
 	rootCmd.AddCommand(listCmd)
-	listCmd.Flags().StringVar(&listDBPath, "db", "./odk.db", "database path")
+	listCmd.Flags().StringVar(&listDBPath, "db", "./odk-reader.db", "database path (reader)")
 	listCmd.Flags().StringVar(&listByExt, "ext", "", "filter by extension (.mp4, pdf, etc.)")
 	listCmd.Flags().StringVar(&listByCat, "cat", "", "filter by category (video, audio, image, document, archive, code)")
 	listCmd.Flags().StringVar(&listDirID, "dir", "", "filter by directory ID")
@@ -101,6 +107,56 @@ func init() {
 	listCmd.Flags().StringVarP(&listExport, "export", "o", "", "export to file (.json or .csv)")
 	listCmd.Flags().Int64Var(&listMinSize, "min-size", 0, "minimum file size in bytes")
 	listCmd.Flags().Int64Var(&listMaxSize, "max-size", 0, "maximum file size in bytes (0 = no limit)")
+}
+
+func listViaAPI(api *apiClient, cmd *cobra.Command, _ []string) {
+	var files []*models.FileEntry
+	var err error
+
+	switch {
+	case listByExt != "":
+		files, err = api.FilesByExt(listByExt)
+	case listByCat != "":
+		files, err = api.FilesByCat(listByCat)
+	case listDirID != "":
+		files, err = api.FilesByDir(listDirID)
+	default:
+		var all []*models.FileEntry
+		all, err = api.AllFiles()
+		if err == nil {
+			files = all
+		}
+	}
+	if err != nil {
+		log.Fatalf("api query error: %v", err)
+	}
+
+	files = filterBySize(files, listMinSize, listMaxSize)
+
+	if listExport != "" {
+		if err := exportFiles(files, listExport); err != nil {
+			log.Fatalf("export error: %v", err)
+		}
+		fmt.Printf("Exported %d files to %s\n", len(files), listExport)
+		return
+	}
+
+	if listJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(files)
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	fmt.Fprintf(w, "NAME\tSIZE\tEXT\tCAT\tURL\n")
+	fmt.Fprintf(w, "----\t----\t---\t---\t---\n")
+	for _, f := range files {
+		fmt.Fprintf(w, "%s\t%s\t.%s\t%s\t%s\n",
+			f.Name, formatBytes(f.Size), f.Ext, f.Category, f.URL)
+	}
+	w.Flush()
+	fmt.Printf("\n%d files\n", len(files))
 }
 
 func filterBySize(files []*models.FileEntry, min, max int64) []*models.FileEntry {

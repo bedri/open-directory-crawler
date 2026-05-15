@@ -28,7 +28,7 @@ var searchCmd = &cobra.Command{
 --regex ile regex desteği, --json ile JSON çıktı, --export ile dosyaya kaydet.`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		store, err := storage.New(searchDBPath)
+		store, err := storage.NewReadOnly(searchDBPath)
 		if err != nil {
 			log.Fatalf("storage error: %v", err)
 		}

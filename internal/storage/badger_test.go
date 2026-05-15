@@ -234,6 +234,69 @@ func TestGetFilesByCategoryEmpty(t *testing.T) {
 	}
 }
 
+func TestSaveLoadAnalysis(t *testing.T) {
+	s := newTestStore(t)
+	type testReport struct {
+		Total int    `json:"total"`
+		Label string `json:"label"`
+	}
+	report := &testReport{Total: 42, Label: "test"}
+	if err := s.SaveAnalysis(report); err != nil {
+		t.Fatalf("SaveAnalysis: %v", err)
+	}
+	var loaded testReport
+	if err := s.LoadAnalysis(&loaded); err != nil {
+		t.Fatalf("LoadAnalysis: %v", err)
+	}
+	if loaded.Total != 42 || loaded.Label != "test" {
+		t.Errorf("LoadAnalysis = %+v, want %+v", loaded, report)
+	}
+}
+
+func TestLoadAnalysisNotFound(t *testing.T) {
+	s := newTestStore(t)
+	var v interface{}
+	if err := s.LoadAnalysis(&v); err == nil {
+		t.Error("expected error for missing analysis")
+	}
+}
+
+func TestSaveLoadWordlist(t *testing.T) {
+	s := newTestStore(t)
+	words := []byte("hello\nworld\ntest\n")
+	if err := s.SaveWordlist(words); err != nil {
+		t.Fatalf("SaveWordlist: %v", err)
+	}
+	loaded, err := s.LoadWordlist()
+	if err != nil {
+		t.Fatalf("LoadWordlist: %v", err)
+	}
+	if string(loaded) != string(words) {
+		t.Errorf("LoadWordlist = %q, want %q", string(loaded), string(words))
+	}
+}
+
+func TestLoadWordlistNotFound(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.LoadWordlist()
+	if err == nil {
+		t.Error("expected error for missing wordlist")
+	}
+}
+
+func TestOverwriteAnalysis(t *testing.T) {
+	s := newTestStore(t)
+	s.SaveAnalysis(map[string]int{"v1": 1})
+	s.SaveAnalysis(map[string]int{"v2": 2})
+	var loaded map[string]int
+	if err := s.LoadAnalysis(&loaded); err != nil {
+		t.Fatalf("LoadAnalysis: %v", err)
+	}
+	if loaded["v2"] != 2 {
+		t.Errorf("overwrite failed: %+v", loaded)
+	}
+}
+
 func TestGetFilesByExtEmpty(t *testing.T) {
 	s := newTestStore(t)
 	files, err := s.GetFilesByExt("mp3")

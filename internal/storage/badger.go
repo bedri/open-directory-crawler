@@ -1,8 +1,11 @@
 package storage
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/bedri/open-directory-crawler/internal/models"
 	"github.com/dgraph-io/badger/v4"
@@ -24,6 +27,19 @@ func New(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+func NewReadOnly(path string) (*Store, error) {
+	opts := badger.DefaultOptions(path).
+		WithLogger(nil).
+		WithReadOnly(true).
+		WithBypassLockGuard(true)
+
+	db, err := badger.Open(opts)
+	if err != nil {
+		return nil, fmt.Errorf("badger read-only open: %w", err)
+	}
+	return &Store{db: db}, nil
+}
+
 func (s *Store) Close() error {
 	return s.db.Close()
 }
@@ -34,6 +50,9 @@ func extIdxKey(ext, ref string) []byte { return []byte("idx:ext:" + ext + ":" + 
 func catIdxKey(cat models.FileCategory, ref string) []byte { return []byte("idx:cat:" + string(cat) + ":" + ref) }
 func extIdxPrefix(ext string) []byte { return []byte("idx:ext:" + ext + ":") }
 func catIdxPrefix(cat models.FileCategory) []byte { return []byte("idx:cat:" + string(cat) + ":") }
+
+func analysisKey() []byte     { return []byte("_analysis") }
+func wordlistKey() []byte     { return []byte("_wordlist") }
 
 func (s *Store) SaveDirectory(d *models.Directory) error {
 	data, err := json.Marshal(d)
@@ -82,6 +101,23 @@ func (s *Store) ListDirectories() ([]*models.Directory, error) {
 	return dirs, err
 }
 
+func (s *Store) GetFileEntry(dirID, fileID string) (*models.FileEntry, error) {
+	var f models.FileEntry
+	err := s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(fileKey(dirID, fileID))
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			return json.Unmarshal(val, &f)
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
 func (s *Store) SaveFileEntry(f *models.FileEntry) error {
 	data, err := json.Marshal(f)
 	if err != nil {
@@ -97,6 +133,26 @@ func (s *Store) SaveFileEntry(f *models.FileEntry) error {
 		}
 		return txn.Set(catIdxKey(f.Category, ref), []byte(ref))
 	})
+}
+
+func (s *Store) GetAllFiles() ([]*models.FileEntry, error) {
+	var files []*models.FileEntry
+	prefix := []byte("file:")
+	err := s.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			var f models.FileEntry
+			if err := it.Item().Value(func(val []byte) error {
+				return json.Unmarshal(val, &f)
+			}); err != nil {
+				continue
+			}
+			files = append(files, &f)
+		}
+		return nil
+	})
+	return files, err
 }
 
 func (s *Store) GetFilesByDir(dirID string) ([]*models.FileEntry, error) {
@@ -233,6 +289,27 @@ func (s *Store) GetStats() (*models.Stats, error) {
 	return st, err
 }
 
+func (s *Store) DeactivateFile(dirID, fileID string) error {
+	return s.db.Update(func(txn *badger.Txn) error {
+		item, err := txn.Get(fileKey(dirID, fileID))
+		if err != nil {
+			return nil
+		}
+		var f models.FileEntry
+		if err := item.Value(func(val []byte) error {
+			return json.Unmarshal(val, &f)
+		}); err != nil {
+			return nil
+		}
+		if !f.Active {
+			return nil
+		}
+		f.Active = false
+		data, _ := json.Marshal(f)
+		return txn.Set(fileKey(dirID, fileID), data)
+	})
+}
+
 func (s *Store) DeleteDirectory(id string) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		prefix := []byte("file:" + id + ":")
@@ -249,4 +326,94 @@ func (s *Store) DeleteDirectory(id string) error {
 
 func (s *Store) RunGC() error {
 	return s.db.RunValueLogGC(0.5)
+}
+
+func (s *Store) Backup(w io.Writer) (uint64, error) {
+	return s.db.Backup(w, 0)
+}
+
+func (s *Store) Load(r io.Reader) error {
+	return s.db.Load(r, 16)
+}
+
+func (s *Store) SaveAnalysis(report any) error {
+	data, err := json.Marshal(report)
+	if err != nil {
+		return err
+	}
+	return s.db.Update(func(txn *badger.Txn) error {
+		return txn.Set(analysisKey(), data)
+	})
+}
+
+func (s *Store) LoadAnalysis(v any) error {
+	return s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(analysisKey())
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			return json.Unmarshal(val, v)
+		})
+	})
+}
+
+func (s *Store) SaveWordlist(keywords []byte) error {
+	return s.db.Update(func(txn *badger.Txn) error {
+		return txn.Set(wordlistKey(), keywords)
+	})
+}
+
+func (s *Store) LoadWordlist() ([]byte, error) {
+	var data []byte
+	err := s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(wordlistKey())
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			data = make([]byte, len(val))
+			copy(data, val)
+			return nil
+		})
+	})
+	return data, err
+}
+
+func SyncToReader(writerPath, readerPath string) error {
+	var buf bytes.Buffer
+
+	wOpts := badger.DefaultOptions(writerPath).
+		WithLogger(nil).
+		WithReadOnly(true).
+		WithBypassLockGuard(true)
+
+	wDB, err := badger.Open(wOpts)
+	if err != nil {
+		return fmt.Errorf("open writer for backup: %w", err)
+	}
+
+	if _, err := wDB.Backup(&buf, 0); err != nil {
+		wDB.Close()
+		return fmt.Errorf("backup: %w", err)
+	}
+	wDB.Close()
+
+	os.RemoveAll(readerPath)
+	os.MkdirAll(readerPath, 0755)
+
+	rOpts := badger.DefaultOptions(readerPath).
+		WithLogger(nil)
+
+	rDB, err := badger.Open(rOpts)
+	if err != nil {
+		return fmt.Errorf("open reader: %w", err)
+	}
+
+	if err := rDB.Load(&buf, 16); err != nil {
+		rDB.Close()
+		return fmt.Errorf("restore: %w", err)
+	}
+
+	return rDB.Close()
 }

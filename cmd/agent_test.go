@@ -170,3 +170,101 @@ func TestProcessPendingEmpty(t *testing.T) {
 		t.Errorf("expected 0 processed, got %d", processed)
 	}
 }
+
+func TestSplitCSV(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{"", nil},
+		{"a", []string{"a"}},
+		{"a,b,c", []string{"a", "b", "c"}},
+		{" a , b , c ", []string{"a", "b", "c"}},
+		{",,a,,b,", []string{"a", "b"}},
+	}
+	for _, tc := range tests {
+		got := splitCSV(tc.input)
+		if len(got) != len(tc.want) {
+			t.Errorf("splitCSV(%q) = %v, want %v", tc.input, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("splitCSV(%q) = %v, want %v", tc.input, got, tc.want)
+				break
+			}
+		}
+	}
+}
+
+func TestCleanupStuckScanning(t *testing.T) {
+	store := newTestStoreForAgent(t)
+	var buf bytes.Buffer
+	logger := log.New(&buf, "", 0)
+
+	store.SaveDirectory(&models.Directory{ID: "d1", URL: "http://a.com/", Status: models.StatusScanning})
+	store.SaveDirectory(&models.Directory{ID: "d2", URL: "http://b.com/", Status: models.StatusDone})
+	store.SaveDirectory(&models.Directory{ID: "d3", URL: "http://c.com/", Status: models.StatusPending})
+
+	cleanupStuckScanning(store, logger)
+
+	d1, _ := store.GetDirectory("d1")
+	if d1.Status != models.StatusPending {
+		t.Errorf("stuck scanning dir should be pending, got %q", d1.Status)
+	}
+	d2, _ := store.GetDirectory("d2")
+	if d2.Status != models.StatusDone {
+		t.Errorf("done dir should stay done, got %q", d2.Status)
+	}
+	d3, _ := store.GetDirectory("d3")
+	if d3.Status != models.StatusPending {
+		t.Errorf("pending dir should stay pending, got %q", d3.Status)
+	}
+	if !strings.Contains(buf.String(), "Reset 1") {
+		t.Errorf("expected log about 1 reset, got %q", buf.String())
+	}
+}
+
+func TestCleanupStuckScanningEmpty(t *testing.T) {
+	store := newTestStoreForAgent(t)
+	var buf bytes.Buffer
+	logger := log.New(&buf, "", 0)
+	cleanupStuckScanning(store, logger)
+	if strings.Contains(buf.String(), "Reset") {
+		t.Errorf("unexpected reset log for empty store")
+	}
+}
+
+func TestAgentDirFromURL(t *testing.T) {
+	d := dirFromURL("http://example.com/path/to/dir/")
+	if d.ID == "" {
+		t.Error("expected non-empty ID")
+	}
+	if d.URL != "http://example.com/path/to/dir/" {
+		t.Errorf("URL = %q", d.URL)
+	}
+	if d.Status != models.StatusPending {
+		t.Errorf("Status = %q, want pending", d.Status)
+	}
+
+	d2 := dirFromURL("https://sub.example.org:8080/data/")
+	if d2.URL != "https://sub.example.org:8080/data/" {
+		t.Errorf("URL = %q", d2.URL)
+	}
+}
+
+func TestAgentDirFromURLUniqueIDs(t *testing.T) {
+	d1 := dirFromURL("http://a.com/")
+	d2 := dirFromURL("http://b.com/")
+	if d1.ID == d2.ID {
+		t.Errorf("different URLs should have different IDs")
+	}
+}
+
+func TestAgentDirFromURLSameURL(t *testing.T) {
+	d1 := dirFromURL("http://example.com/files/")
+	d2 := dirFromURL("http://example.com/files/")
+	if d1.ID != d2.ID {
+		t.Errorf("same URL should produce same ID")
+	}
+}

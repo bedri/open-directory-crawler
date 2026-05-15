@@ -10,6 +10,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bedri/open-directory-crawler/internal/classify"
@@ -18,6 +19,18 @@ import (
 	"github.com/bedri/open-directory-crawler/internal/storage"
 )
 
+type DownloadConfig struct {
+	Enabled  bool
+	MaxSize  int64
+	MaxFiles int
+}
+
+var downloadCount atomic.Int32
+
+func ResetDownloadCount() {
+	downloadCount.Store(0)
+}
+
 type Config struct {
 	MaxDepth    int
 	Concurrency int
@@ -25,6 +38,8 @@ type Config struct {
 	UserAgent   string
 	MaxFileSize int64
 	Timeout     time.Duration
+	Download    DownloadConfig
+	GDrive      GDriveConfig
 }
 
 type Crawler struct {
@@ -111,16 +126,28 @@ func (c *Crawler) crawlPage(wg *sync.WaitGroup, job models.CrawlJob) {
 	defer wg.Done()
 	time.Sleep(c.cfg.Delay)
 
-	body, err := fetchURL(job.URL, c.cfg.UserAgent, c.cfg.Timeout)
-	if err != nil {
-		log.Printf("fetch error %s: %v", job.URL, err)
-		return
-	}
+	var title string
+	var links []parser.FileLink
 
-	title, links, err := parser.ParseDirectoryListing(job.URL, body)
-	if err != nil {
-		log.Printf("parse error %s: %v", job.URL, err)
-		return
+	if strings.HasPrefix(job.URL, "ftp://") {
+		l, err := listFTPDirectory(job.URL)
+		if err != nil {
+			log.Printf("ftp error %s: %v", job.URL, err)
+			return
+		}
+		links = l
+	} else {
+		body, err := fetchURL(job.URL, c.cfg.UserAgent, c.cfg.Timeout)
+		if err != nil {
+			log.Printf("fetch error %s: %v", job.URL, err)
+			return
+		}
+
+		title, links, err = parser.ParseDirectoryListing(job.URL, body)
+		if err != nil {
+			log.Printf("parse error %s: %v", job.URL, err)
+			return
+		}
 	}
 
 	dirID := urlToID(job.URL)
@@ -161,6 +188,31 @@ func (c *Crawler) crawlPage(wg *sync.WaitGroup, job models.CrawlJob) {
 			Category:    classify.FileEntry(name, link.Size),
 			ParentURL:   job.URL,
 			DirectoryID: dirID,
+			Active:      true,
+			Metadata:    probeMetadata(link.URL, name, c.cfg.Timeout),
+		}
+
+		if c.cfg.Download.Enabled {
+			if c.cfg.Download.MaxFiles <= 0 || downloadCount.Load() < int32(c.cfg.Download.MaxFiles) {
+				dlMeta := downloadAndProcess(link.URL, c.cfg.UserAgent, c.cfg.Timeout, c.cfg.Download.MaxSize)
+				if _, skip := dlMeta["skip_reason"]; !skip {
+					downloadCount.Add(1)
+				}
+				for k, v := range dlMeta {
+					entry.Metadata[k] = v
+				}
+			}
+		}
+
+		if c.cfg.GDrive.Enabled && gdriveShouldSave(entry, c.cfg.GDrive) {
+			driveFile, err := sendToGDrive(c.cfg.GDrive.WebhookURL, link.URL, name, c.cfg.GDrive.FolderID, c.cfg.Timeout)
+			if err != nil {
+				log.Printf("gdrive error %s: %v", link.URL, err)
+			} else {
+				entry.Metadata["drive_id"] = driveFile.DriveID
+				entry.Metadata["drive_mime"] = driveFile.MIME
+				entry.Metadata["drive_size"] = fmt.Sprintf("%d", driveFile.Size)
+			}
 		}
 
 		if c.cfg.MaxFileSize > 0 && entry.Size > c.cfg.MaxFileSize {
@@ -171,23 +223,50 @@ func (c *Crawler) crawlPage(wg *sync.WaitGroup, job models.CrawlJob) {
 	}
 
 	c.mu.Lock()
+
+	existingFiles, _ := c.store.GetFilesByDir(dirID)
+	current := make(map[string]*models.FileEntry)
 	for _, f := range fileEntries {
+		current[f.ID] = f
+	}
+
+	for _, ef := range existingFiles {
+		if _, ok := current[ef.ID]; !ok {
+			c.store.DeactivateFile(dirID, ef.ID)
+		}
+	}
+
+	for _, f := range fileEntries {
+		existing, _ := c.store.GetFileEntry(dirID, f.ID)
+		if existing != nil && existing.Size == f.Size && existing.Ext == f.Ext && existing.Category == f.Category {
+			if !existing.Active {
+				existing.Active = true
+				c.store.SaveFileEntry(existing)
+			}
+			continue
+		}
 		if err := c.store.SaveFileEntry(f); err != nil {
 			log.Printf("save file error: %v", err)
 		}
 	}
+
 	if d, err := c.store.GetDirectory(dirID); err == nil {
 		d.Title = title
-		d.FileCount += len(fileEntries)
-		d.TotalSize += func() int64 {
-			var total int64
-			for _, f := range fileEntries {
-				total += f.Size
-			}
-			return total
-		}()
 		d.Status = models.StatusDone
 		d.ScannedAt = time.Now()
+
+		allFiles, _ := c.store.GetFilesByDir(dirID)
+		var totalSize int64
+		activeCount := 0
+		for _, f := range allFiles {
+			if f.Active {
+				totalSize += f.Size
+				activeCount++
+			}
+		}
+		d.FileCount = activeCount
+		d.TotalSize = totalSize
+
 		c.store.SaveDirectory(d)
 	}
 	c.mu.Unlock()

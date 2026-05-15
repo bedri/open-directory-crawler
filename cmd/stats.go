@@ -14,7 +14,7 @@ var statsCmd = &cobra.Command{
 	Use:   "stats",
 	Short: "Veritabanı istatistiklerini göster",
 	Run: func(cmd *cobra.Command, args []string) {
-		store, err := storage.New(statsDBPath)
+		store, err := storage.NewReadOnly(statsDBPath)
 		if err != nil {
 			log.Fatalf("storage error: %v", err)
 		}
