@@ -33,6 +33,7 @@ type Finder struct {
 	googleCX   string
 	bingKey    string
 	shodanKey  string
+	searxngURL string
 }
 
 func New() *Finder {
@@ -49,10 +50,11 @@ func New() *Finder {
 			"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 			"Mozilla/5.0 (Windows NT 10.0; rv:133.0) Gecko/20100101 Firefox/133.0",
 		},
-		googleKey: envutil.Get("ODK_GOOGLE_KEY", ""),
-		googleCX:  envutil.Get("ODK_GOOGLE_CX", ""),
-		bingKey:   envutil.Get("ODK_BING_KEY", ""),
-		shodanKey: envutil.Get("ODK_SHODAN_KEY", ""),
+		googleKey:  envutil.Get("ODK_GOOGLE_KEY", ""),
+		googleCX:   envutil.Get("ODK_GOOGLE_CX", ""),
+		bingKey:    envutil.Get("ODK_BING_KEY", ""),
+		shodanKey:  envutil.Get("ODK_SHODAN_KEY", ""),
+		searxngURL: envutil.Get("ODK_SEARXNG_URL", "https://searx.be"),
 	}
 	return f
 }
@@ -140,6 +142,11 @@ func (f *Finder) DiscoverAll() ([]Result, error) {
 	}
 
 	results, _ = f.SearchDuckDuckGo()
+	for _, r := range results {
+		addUnique(r)
+	}
+
+	results, _ = f.SearchSearXNG()
 	for _, r := range results {
 		addUnique(r)
 	}
@@ -404,6 +411,51 @@ func (f *Finder) SearchDuckDuckGo() ([]Result, error) {
 		time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
 	}
 	return all, nil
+}
+
+func (f *Finder) SearchSearXNG() ([]Result, error) {
+	var all []Result
+	queries := []string{
+		`intitle:"index of" "parent directory"`,
+		`"Index of /" mp4`,
+		`"Index of /" movies`,
+		`"Index of /" books`,
+		`"Index of /" music`,
+		`intitle:"Directory Listing"`,
+	}
+
+	for _, q := range queries {
+		url := fmt.Sprintf("%s/search?q=%s&format=json&language=en-US&categories=general",
+			f.searxngURL, url.QueryEscape(q))
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("User-Agent", f.randomUA())
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := f.client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		var sRes searxngResponse
+		if json.Unmarshal(body, &sRes) != nil {
+			continue
+		}
+		for _, r := range sRes.Results {
+			all = append(all, Result{URL: r.URL, Source: "searxng", Title: r.Title})
+		}
+		time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
+	}
+	return all, nil
+}
+
+type searxngResponse struct {
+	Results []struct {
+		URL     string `json:"url"`
+		Title   string `json:"title"`
+		Content string `json:"content"`
+	} `json:"results"`
 }
 
 func (f *Finder) SearchShodan() ([]Result, error) {
@@ -749,6 +801,32 @@ func (f *Finder) DiscoverByType(category string) ([]Result, error) {
 				continue
 			}
 			addUnique(Result{URL: decoded, Source: "duckduckgo"})
+		}
+		time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
+	}
+
+	searxngQueries := []string{
+		fmt.Sprintf(`intitle:"index of" %s`, category),
+		fmt.Sprintf(`"Index of /" %s`, category),
+		fmt.Sprintf(`"Index of /" %ss`, category),
+	}
+	for _, q := range searxngQueries {
+		url := fmt.Sprintf("%s/search?q=%s&format=json&language=en-US&categories=general",
+			f.searxngURL, url.QueryEscape(q))
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("User-Agent", f.randomUA())
+		req.Header.Set("Accept", "application/json")
+		resp, err := f.client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		var sRes searxngResponse
+		if json.Unmarshal(body, &sRes) == nil {
+			for _, r := range sRes.Results {
+				addUnique(Result{URL: r.URL, Source: "searxng", Title: r.Title})
+			}
 		}
 		time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
 	}

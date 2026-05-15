@@ -287,6 +287,6 @@ func corsMiddleware(next http.Handler) http.Handler {
 func init() {
 	rootCmd.AddCommand(apiCmd)
 	apiCmd.Flags().StringVar(&apiDBPath, "db", "./odk.db", "database path")
-	apiCmd.Flags().StringVarP(&apiAddr, "addr", "a", ":8080", "listen address")
+	apiCmd.Flags().StringVarP(&apiAddr, "addr", "a", ":40444", "listen address")
 	apiCmd.Flags().BoolVar(&apiCORS, "cors", false, "enable CORS headers")
 }
