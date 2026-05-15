@@ -1,6 +1,7 @@
 package classify
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/bedri/open-directory-crawler/internal/models"
@@ -112,6 +113,33 @@ func TestExtMapCoverage(t *testing.T) {
 	for _, ext := range knownExts {
 		if _, ok := extMap[ext]; !ok {
 			t.Errorf("extMap missing known extension: %s", ext)
+		}
+	}
+}
+
+func TestExtensionSanitizesGarbage(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		{"file.mp3", "mp3"},
+		{"file.MP3", "mp3"},
+		{"archive.tar.gz", "gz"},
+		{"file", ""},
+		{".hidden", "hidden"},
+		{">", ""},
+		{"↗", ""},
+		{"file.\n\t\t\tgarbage", ""},
+		{"file.\t\t\t", ""},
+		{"file.a b", ""},
+		{"file.abc123", "abc123"},
+		{"file." + strings.Repeat("a", 21), ""},
+		{"file.a-b_c", "a-b_c"},
+	}
+	for _, tt := range tests {
+		got := Extension(tt.name)
+		if got != tt.want {
+			t.Errorf("Extension(%q) = %q, want %q", tt.name, got, tt.want)
 		}
 	}
 }

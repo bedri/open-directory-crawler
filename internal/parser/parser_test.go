@@ -190,3 +190,64 @@ func TestFileLinksToEntries(t *testing.T) {
 		t.Errorf("entries = %+v", entries)
 	}
 }
+
+func TestFileLinksToEntriesFiltersDirs(t *testing.T) {
+	links := []FileLink{
+		{Name: "file.txt", URL: "http://example.com/file.txt", Size: 100, IsDir: false},
+		{Name: "subdir", URL: "http://example.com/subdir/", IsDir: true},
+	}
+	entries := FileLinksToEntries(links, "d1", "http://example.com/")
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1 (dirs filtered)", len(entries))
+	}
+}
+
+func TestIsValidName(t *testing.T) {
+	tests := []struct {
+		name  string
+		valid bool
+	}{
+		{"file.txt", true},
+		{"a.mp3", true},
+		{"My File (2024).pdf", true},
+		{"file_with_underscore.js", true},
+		{"file-with-dashes.css", true},
+		{"réseau.pdf", true},
+		{"中文.txt", true},
+		{"", false},
+		{".", false},
+		{"/", false},
+		{"../", false},
+		{"file\nwith\nnewlines.txt", false},
+		{"file\twith\ttabs.txt", false},
+		{">", false},
+		{"↗", false},
+		{">>>", false},
+		{"   ", false},
+		{"a", true},
+		{"1", true},
+	}
+	for _, tt := range tests {
+		got := IsValidName(tt.name)
+		if got != tt.valid {
+			t.Errorf("IsValidName(%q) = %v, want %v", tt.name, got, tt.valid)
+		}
+	}
+}
+
+func TestFileLinksToEntriesLongName(t *testing.T) {
+	buf := make([]byte, 300)
+	for i := range buf {
+		buf[i] = 'a'
+	}
+	longName := string(buf)
+	url := "http://example.com/" + longName
+	links := []FileLink{
+		{Name: longName, URL: url, Size: 0, IsDir: false},
+		{Name: "short.txt", URL: "http://example.com/short.txt", Size: 100, IsDir: false},
+	}
+	entries := FileLinksToEntries(links, "d1", "http://example.com/")
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1 (long name filtered)", len(entries))
+	}
+}

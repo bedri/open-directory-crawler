@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -142,13 +143,22 @@ func (c *Crawler) crawlPage(wg *sync.WaitGroup, job models.CrawlJob) {
 			continue
 		}
 
+			name := strings.TrimSpace(link.Name)
+		if !parser.IsValidName(name) {
+			if p := path.Base(link.URL); parser.IsValidName(p) {
+				name = p
+			} else {
+				continue
+			}
+		}
+
 		entry := &models.FileEntry{
-			ID:          dirID + ":" + link.Name,
-			Name:        link.Name,
+			ID:          dirID + ":" + name,
+			Name:        name,
 			URL:         link.URL,
 			Size:        link.Size,
-			Ext:         classify.Extension(link.Name),
-			Category:    classify.FileEntry(link.Name, link.Size),
+			Ext:         classify.Extension(name),
+			Category:    classify.FileEntry(name, link.Size),
 			ParentURL:   job.URL,
 			DirectoryID: dirID,
 		}

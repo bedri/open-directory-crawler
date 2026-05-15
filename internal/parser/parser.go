@@ -6,11 +6,14 @@ import (
 	"path"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/bedri/open-directory-crawler/internal/classify"
 	"github.com/bedri/open-directory-crawler/internal/models"
 )
+
+
 
 type FileLink struct {
 	Name         string
@@ -239,6 +242,25 @@ func parseSize(s string) int64 {
 	return 0
 }
 
+func IsValidName(name string) bool {
+	if name == "" || len(name) > 255 {
+		return false
+	}
+	for _, r := range name {
+		if r == '/' || r == '\\' || unicode.IsControl(r) {
+			return false
+		}
+	}
+	hasLetterOrDigit := false
+	for _, r := range name {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			hasLetterOrDigit = true
+			break
+		}
+	}
+	return hasLetterOrDigit
+}
+
 func FileLinksToEntries(links []FileLink, dirID, parentURL string) []*models.FileEntry {
 	var entries []*models.FileEntry
 	for _, l := range links {
@@ -246,7 +268,7 @@ func FileLinksToEntries(links []FileLink, dirID, parentURL string) []*models.Fil
 			continue
 		}
 		name := path.Base(l.URL)
-		if name == "" || name == "." || name == "/" {
+		if !IsValidName(name) {
 			continue
 		}
 

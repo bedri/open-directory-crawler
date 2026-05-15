@@ -3,6 +3,7 @@ package classify
 import (
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/bedri/open-directory-crawler/internal/models"
 )
@@ -119,7 +120,16 @@ func FileEntry(name string, size int64) models.FileCategory {
 }
 
 func Extension(name string) string {
-	return strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+	for _, r := range ext {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-' && r != '_' && r != '.' {
+			return ""
+		}
+	}
+	if len(ext) > 20 {
+		return ""
+	}
+	return ext
 }
 
 func IsDirIndex(name string) bool {
