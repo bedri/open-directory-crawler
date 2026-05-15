@@ -26,7 +26,11 @@ Kullanım:
 	Run: func(cmd *cobra.Command, args []string) {
 		store, err := storage.NewReadOnly(portalDBPath)
 		if err != nil {
-			log.Fatalf("storage error: %v", err)
+			log.Printf("reader DB (%s) not found, trying main DB", portalDBPath)
+			store, err = storage.NewReadOnly("./odk.db")
+			if err != nil {
+				log.Fatalf("storage error: %v", err)
+			}
 		}
 		defer store.Close()
 

@@ -3,9 +3,11 @@ package storage
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/bedri/open-directory-crawler/internal/models"
 	"github.com/dgraph-io/badger/v4"
@@ -28,16 +30,43 @@ func New(path string) (*Store, error) {
 }
 
 func NewReadOnly(path string) (*Store, error) {
-	opts := badger.DefaultOptions(path).
-		WithLogger(nil).
-		WithReadOnly(true).
-		WithBypassLockGuard(true)
+	openOpts := func(readOnly bool) badger.Options {
+		return badger.DefaultOptions(path).
+			WithLogger(nil).
+			WithReadOnly(readOnly).
+			WithBypassLockGuard(true)
+	}
 
-	db, err := badger.Open(opts)
-	if err != nil {
+	db, err := badger.Open(openOpts(true))
+	if err == nil {
+		return &Store{db: db}, nil
+	}
+
+	if !isTruncErr(err) {
 		return nil, fmt.Errorf("badger read-only open: %w", err)
 	}
+
+	db, err = badger.Open(openOpts(false))
+	if err != nil {
+		return nil, fmt.Errorf("badger recover open: %w", err)
+	}
+	db.Close()
+
+	db, err = badger.Open(openOpts(true))
+	if err != nil {
+		return nil, fmt.Errorf("badger re-open: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+func isTruncErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, badger.ErrTruncateNeeded) {
+		return true
+	}
+	return strings.Contains(err.Error(), "Log truncate required")
 }
 
 func (s *Store) Close() error {

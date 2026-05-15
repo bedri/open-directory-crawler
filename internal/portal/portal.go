@@ -131,36 +131,37 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		limit = 100
 	}
 
-	dirs, err := s.store.ListDirectories()
+	allFiles, err := s.store.GetAllFiles()
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
 
+	dirsCache := make(map[string]string)
+
 	var matched []searchResult
-	for _, d := range dirs {
-		files, err := s.store.GetFilesByDir(d.ID)
-		if err != nil {
-			continue
-		}
-		for _, f := range files {
-			if len(matched) >= limit {
-				break
-			}
-			if !strings.Contains(strings.ToLower(f.Name), query) {
-				continue
-			}
-			if cat != "" && string(f.Category) != cat {
-				continue
-			}
-			matched = append(matched, searchResult{
-				File:   f,
-				DirURL: d.URL,
-			})
-		}
+	for _, f := range allFiles {
 		if len(matched) >= limit {
 			break
 		}
+		if !strings.Contains(strings.ToLower(f.Name), query) {
+			continue
+		}
+		if cat != "" && string(f.Category) != cat {
+			continue
+		}
+		dirURL, ok := dirsCache[f.DirectoryID]
+		if !ok {
+			d, err := s.store.GetDirectory(f.DirectoryID)
+			if err == nil {
+				dirURL = d.URL
+				dirsCache[f.DirectoryID] = d.URL
+			}
+		}
+		matched = append(matched, searchResult{
+			File:   f,
+			DirURL: dirURL,
+		})
 	}
 
 	if matched == nil {
