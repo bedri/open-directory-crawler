@@ -29,6 +29,7 @@ kristalt_server.sql
 public_html/
 devel/
 kutuphane/
+bots/
 
 # Tarballs
 hoopss.devel.tar.bz2
