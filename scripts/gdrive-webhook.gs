@@ -74,7 +74,10 @@ function respond(code, data) {
 function processQueue() {
   var queueFileId = PropertiesService.getScriptProperties().getProperty('QUEUE_FILE_ID');
   if (!queueFileId) {
-    Logger.log('QUEUE_FILE_ID not set — nothing to process');
+    queueFileId = findQueueFile();
+  }
+  if (!queueFileId) {
+    Logger.log('QUEUE_FILE_ID not set and odk-queue.json not found in folder — nothing to process');
     return;
   }
 
@@ -194,6 +197,30 @@ function getDailyLimit() {
 
 function getToday() {
   return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+// ─── YARDIMCI ──────────────────────────────────────────────────
+
+function findQueueFile() {
+  // GDRIVE_FOLDER içinde odk-queue.json veya queue.json ara
+  var folderId = PropertiesService.getScriptProperties().getProperty('GDRIVE_FOLDER');
+  if (!folderId) return null;
+
+  try {
+    var folder = DriveApp.getFolderById(folderId);
+    var names = ['odk-queue.json', 'queue.json'];
+    for (var i = 0; i < names.length; i++) {
+      var files = folder.getFilesByName(names[i]);
+      if (files.hasNext()) {
+        var file = files.next();
+        Logger.log('Found queue file: ' + names[i] + ' (ID: ' + file.getId() + ')');
+        return file.getId();
+      }
+    }
+  } catch (e) {
+    Logger.log('findQueueFile error: ' + e);
+  }
+  return null;
 }
 
 // ─── YÖNETİM FONKSİYONLARI ────────────────────────────────────
