@@ -1,0 +1,23 @@
+# Binaries
+odk
+
+# Database
+odk.db/
+
+# Logs
+*.log
+odk-agent.log
+
+# SQL dump (313MB, not needed for git)
+kristalt_hoopss_none_music.sql
+
+# Old system service file (moved to user service)
+odk-agent.service
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

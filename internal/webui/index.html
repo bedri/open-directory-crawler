@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ODK - Open Directory Crawler</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:#1e293b;border-bottom:1px solid #334155;padding:0 24px;display:flex;align-items:center;height:56px;gap:24px}
+header h1{font-size:18px;font-weight:700;color:#38bdf8}
+header nav{display:flex;gap:4px}
+header nav a{padding:8px 16px;border-radius:6px;text-decoration:none;color:#94a3b8;font-size:14px;cursor:pointer}
+header nav a.active{background:#334155;color:#e2e8f0}
+header nav a:hover{background:#334155;color:#e2e8f0}
+main{padding:24px;max-width:1200px;margin:0 auto}
+.card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:20px;margin-bottom:20px}
+.row{display:flex;gap:16px;flex-wrap:wrap}
+.stat{flex:1;min-width:180px;padding:20px;border-radius:8px;background:#0f172a;border:1px solid #334155}
+.stat h3{font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:.5px}
+.stat .val{font-size:28px;font-weight:700;margin-top:4px}
+input[type=text],select{padding:10px 14px;border-radius:8px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;font-size:14px;outline:none;width:100%}
+input[type=text]:focus,select:focus{border-color:#38bdf8}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{padding:10px 12px;text-align:left;color:#64748b;font-weight:600;border-bottom:2px solid #334155;white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid #1e293b;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr:hover td{background:#1e293b}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase}
+.badge-audio{background:#1e3a5f;color:#60a5fa}
+.badge-video{background:#3b1f3b;color:#c084fc}
+.badge-image{background:#1a3d2e;color:#4ade80}
+.badge-document{background:#3b2f1a;color:#fbbf24}
+.badge-archive{background:#3b1f1f;color:#f87171}
+.badge-code{background:#1a2e3b;color:#22d3ee}
+.badge-other{background:#334155;color:#94a3b8}
+.btn{padding:8px 20px;border-radius:8px;border:none;background:#38bdf8;color:#0f172a;font-weight:600;font-size:14px;cursor:pointer}
+.btn:hover{background:#7dd3fc}
+.pill{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;border-radius:12px;padding:0 8px;font-size:11px;font-weight:600;background:#334155;color:#94a3b8}
+.bar-chart{display:flex;gap:8px;align-items:flex-end;height:120px;padding:10px 0}
+.bar{flex:1;border-radius:4px 4px 0 0;min-height:4px;position:relative;text-align:center;font-size:10px;color:#94a3b8;padding-top:4px}
+.bar .label{position:absolute;bottom:-20px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;color:#64748b}
+.pagination{display:flex;gap:8px;align-items:center;margin-top:12px;justify-content:center}
+.pagination button{padding:6px 14px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;cursor:pointer;font-size:13px}
+.pagination button:disabled{opacity:.4;cursor:default}
+.pagination span{font-size:13px;color:#94a3b8}
+.search-box{display:flex;gap:12px;align-items:flex-end}
+.search-box input{flex:1}
+.search-box select{width:auto;min-width:140px}
+a{color:#38bdf8;text-decoration:none}
+a:hover{text-decoration:underline}
+.hidden{display:none}
+.copy-btn{background:none;border:none;color:#64748b;cursor:pointer;padding:2px 6px;font-size:12px;border-radius:4px}
+.copy-btn:hover{background:#334155;color:#e2e8f0}
+.loading{text-align:center;padding:40px;color:#64748b}
+.empty{text-align:center;padding:40px;color:#64748b;font-size:14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:24px;height:24px;border:3px solid #334155;border-top-color:#38bdf8;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 8px}
+#toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;background:#1e293b;border:1px solid #475569;color:#e2e8f0;font-size:13px;opacity:0;transition:opacity .3s;z-index:100}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>ODK</h1>
+  <nav>
+    <a class="active" onclick="showPage('dash')">Dashboard</a>
+    <a onclick="showPage('browse')">Dizinler</a>
+    <a onclick="showPage('search')">Arama</a>
+  </nav>
+</header>
+<main>
+<div id="page-dash"><div class="loading"><div class="spinner"></div>Yükleniyor...</div></div>
+<div id="page-browse" class="hidden"><div class="loading"><div class="spinner"></div></div></div>
+<div id="page-search" class="hidden"><div class="loading"><div class="spinner"></div></div></div>
+</main>
+<div id="toast"></div>
+<script>
+const API = ''
+let state = { dirs: [], dirOffset: 0, dirLimit: 100, searchResults: [] }
+
+async function api(path) {
+  const r = await fetch(API + path)
+  if (!r.ok) throw new Error((await r.json()).error || r.statusText)
+  return r.json()
+}
+
+function fmtSize(b) {
+  if (!b) return '0 B'
+  const u = ['B','KB','MB','GB','TB']
+  let i = 0
+  let s = b
+  while (s >= 1024 && i < u.length-1) { s /= 1024; i++ }
+  return s.toFixed(i>0?1:0) + ' ' + u[i]
+}
+
+function badge(cat) {
+  return `<span class="badge badge-${cat}">${cat}</span>`
+}
+
+function copy(text) {
+  navigator.clipboard.writeText(text).then(() => toast('Kopyalandı'))
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast')
+  t.textContent = msg; t.className = 'show'
+  setTimeout(() => t.className = '', 2000)
+}
+
+function showPage(name) {
+  document.querySelectorAll('main > div').forEach(d => d.classList.add('hidden'))
+  document.getElementById('page-' + name).classList.remove('hidden')
+  document.querySelectorAll('header nav a').forEach(a => a.classList.remove('active'))
+  event.target.classList.add('active')
+  if (name === 'dash' && document.getElementById('page-dash').children.length <= 1) loadDash()
+  if (name === 'browse') loadDirs()
+  if (name === 'search') loadSearch()
+}
+
+async function loadDash() {
+  const el = document.getElementById('page-dash')
+  try {
+    const s = await api('/stats')
+    const cats = s.category_counts || {}
+    const exts = s.ext_counts || {}
+    const topExts = Object.entries(exts).sort((a,b) => b[1]-a[1]).slice(0, 15)
+
+    let chartHtml = '<div class="bar-chart">'
+    const maxCat = Math.max(...Object.values(cats), 1)
+    for (const [k,v] of Object.entries(cats)) {
+      const pct = (v/maxCat*100)
+      chartHtml += `<div class="bar" style="height:${Math.max(pct,4)}%;background:var(--c-${k},#475569)"><div class="label">${k}<br><b>${v}</b></div></div>`
+    }
+    chartHtml += '</div>'
+
+    el.innerHTML = `
+      <div class="row">
+        <div class="stat"><h3>Dizin</h3><div class="val" style="color:#38bdf8">${s.total_directories.toLocaleString()}</div></div>
+        <div class="stat"><h3>Dosya</h3><div class="val" style="color:#4ade80">${s.total_files.toLocaleString()}</div></div>
+        <div class="stat"><h3>Boyut</h3><div class="val" style="color:#fbbf24">${fmtSize(s.total_size)}</div></div>
+      </div>
+      <div class="row">
+        <div class="card" style="flex:2">
+          <h3 style="margin-bottom:16px;color:#94a3b8;font-size:14px;text-transform:uppercase;letter-spacing:.5px">Kategori Dağılımı</h3>
+          ${chartHtml}
+        </div>
+        <div class="card" style="flex:1">
+          <h3 style="margin-bottom:12px;color:#94a3b8;font-size:14px;text-transform:uppercase;letter-spacing:.5px">En Çok Uzantı</h3>
+          ${topExts.map(([k,v]) => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e293b;font-size:13px"><span style="color:#94a3b8">.${k}</span><span class="pill">${v}</span></div>`).join('')}
+        </div>
+      </div>`
+  } catch(e) {
+    el.innerHTML = `<div class="empty">Hata: ${e.message}</div>`
+  }
+}
+
+async function loadDirs() {
+  const el = document.getElementById('page-browse')
+  try {
+    const dirs = await api('/dirs?limit=100&offset=' + state.dirOffset)
+    state.dirs = dirs
+    const total = dirs.length < 100 ? state.dirOffset + dirs.length : '?'
+    el.innerHTML = `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="color:#94a3b8;font-size:14px;text-transform:uppercase;letter-spacing:.5px">Dizinler</h3>
+          <div class="pagination">
+            <button onclick="dirPage(-1)" ${state.dirOffset===0?'disabled':''}>‹ Önceki</button>
+            <span>${state.dirOffset+1}-${state.dirOffset+dirs.length} / ${total}</span>
+            <button onclick="dirPage(1)" ${dirs.length<100?'disabled':''}>Sonraki ›</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Durum</th><th>URL</th><th>Dosya</th><th>Boyut</th></tr></thead>
+          <tbody>${dirs.map(d => `<tr>
+            <td>${d.status==='done'?'<span style="color:#4ade80">✓</span>':d.status==='error'?'<span style="color:#f87171">✗</span>':'<span style="color:#fbbf24">⋯</span>'}</td>
+            <td><a href="${d.url}" target="_blank" title="${d.url}">${d.url.length>50?d.url.slice(0,50)+'…':d.url}</a></td>
+            <td>${d.file_count||0}</td>
+            <td>${fmtSize(d.total_size)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>`
+  } catch(e) {
+    el.innerHTML = `<div class="empty">Hata: ${e.message}</div>`
+  }
+}
+
+function dirPage(delta) {
+  state.dirOffset = Math.max(0, state.dirOffset + delta * 100)
+  loadDirs()
+}
+
+async function loadSearch() {
+  const el = document.getElementById('page-search')
+  el.innerHTML = `
+    <div class="card">
+      <h3 style="color:#94a3b8;font-size:14px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px">Dosya Ara</h3>
+      <div class="search-box">
+        <input type="text" id="sq" placeholder="Dosya adında ara..." onkeydown="if(event.key==='Enter')doSearch()">
+        <select id="sc"><option value="">Tüm kategoriler</option><option value="audio">Audio</option><option value="video">Video</option><option value="image">Image</option><option value="document">Document</option><option value="archive">Archive</option><option value="code">Code</option></select>
+        <button class="btn" onclick="doSearch()">Ara</button>
+      </div>
+    </div>
+    <div id="sr"></div>`
+}
+
+async function doSearch() {
+  const q = document.getElementById('sq').value.trim()
+  const c = document.getElementById('sc').value
+  if (!q) return
+  const el = document.getElementById('sr')
+  el.innerHTML = '<div class="loading"><div class="spinner"></div></div>'
+  try {
+    const res = await api('/search?q=' + encodeURIComponent(q) + (c?'&cat='+c:'') + '&limit=200')
+    el.innerHTML = `
+      <div class="card">
+        <div style="color:#94a3b8;font-size:13px;margin-bottom:12px">${res.length} sonuç</div>
+        <table>
+          <thead><tr><th>Dosya</th><th>Kategori</th><th>Boyut</th><th>Dizin</th></tr></thead>
+          <tbody>${res.map(r => `<tr>
+            <td><a href="${r.file.url}" target="_blank" title="${r.file.url}">${r.file.name}</a> <button class="copy-btn" onclick="copy('${r.file.url}')">📋</button></td>
+            <td>${badge(r.file.category)}</td>
+            <td>${fmtSize(r.file.size)}</td>
+            <td style="font-size:12px;color:#64748b" title="${r.directory_url}">${r.directory_url.length>40?r.directory_url.slice(0,40)+'…':r.directory_url}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>`
+  } catch(e) {
+    el.innerHTML = `<div class="empty">Hata: ${e.message}</div>`
+  }
+}
+
+loadDash()
+</script>
+</body>
+</html>

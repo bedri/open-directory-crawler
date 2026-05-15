@@ -1,0 +1,13 @@
+database:
+  path: ./odk.db
+
+crawler:
+  max_depth: 3
+  concurrency: 5
+  delay_ms: 200
+  timeout_sec: 30
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  max_file_size: 0
+
+discover:
+  dork_pages: 2
