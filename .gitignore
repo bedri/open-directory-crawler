@@ -4,6 +4,14 @@ odk
 # Database
 odk.db/
 
+# Env (may contain API keys)
+.env
+
+# Crawl data (discovered URLs, exported data)
+discovered_dirs.txt
+*.data.txt
+export_*
+
 # Logs
 *.log
 odk-agent.log

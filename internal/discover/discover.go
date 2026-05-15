@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bedri/open-directory-crawler/internal/classify"
+	"github.com/bedri/open-directory-crawler/internal/envutil"
 	"github.com/bedri/open-directory-crawler/internal/models"
 	"github.com/bedri/open-directory-crawler/internal/parser"
 )
@@ -26,12 +27,16 @@ type Result struct {
 }
 
 type Finder struct {
-	client    *http.Client
+	client     *http.Client
 	userAgents []string
+	googleKey  string
+	googleCX   string
+	bingKey    string
+	shodanKey  string
 }
 
 func New() *Finder {
-	return &Finder{
+	f := &Finder{
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
@@ -44,7 +49,12 @@ func New() *Finder {
 			"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 			"Mozilla/5.0 (Windows NT 10.0; rv:133.0) Gecko/20100101 Firefox/133.0",
 		},
+		googleKey: envutil.Get("ODK_GOOGLE_KEY", ""),
+		googleCX:  envutil.Get("ODK_GOOGLE_CX", ""),
+		bingKey:   envutil.Get("ODK_BING_KEY", ""),
+		shodanKey: envutil.Get("ODK_SHODAN_KEY", ""),
 	}
+	return f
 }
 
 func (f *Finder) randomUA() string {
@@ -155,9 +165,12 @@ func (f *Finder) DiscoverAll() ([]Result, error) {
 }
 
 func (f *Finder) SearchGoogle() ([]Result, error) {
+	if f.googleKey != "" && f.googleCX != "" {
+		return f.searchGoogleAPI()
+	}
 	var all []Result
 	for _, dork := range Dorks {
-		results, err := f.searchGooglePage(dork, 1)
+		results, err := f.searchGoogleScrape(dork, 1)
 		if err != nil {
 			continue
 		}
@@ -167,7 +180,39 @@ func (f *Finder) SearchGoogle() ([]Result, error) {
 	return all, nil
 }
 
-func (f *Finder) searchGooglePage(query string, pages int) ([]Result, error) {
+func (f *Finder) searchGoogleAPI() ([]Result, error) {
+	var all []Result
+	for _, dork := range Dorks {
+		url := fmt.Sprintf("https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&q=%s",
+			f.googleKey, f.googleCX, url.QueryEscape(dork))
+		req, _ := http.NewRequest("GET", url, nil)
+		resp, err := f.client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		var gRes googleAPIResponse
+		if json.Unmarshal(body, &gRes) != nil {
+			continue
+		}
+		for _, item := range gRes.Items {
+			all = append(all, Result{URL: item.Link, Source: "google", Title: item.Title})
+		}
+		time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
+	}
+	return all, nil
+}
+
+type googleAPIResponse struct {
+	Items []struct {
+		Link  string `json:"link"`
+		Title string `json:"title"`
+	} `json:"items"`
+}
+
+func (f *Finder) searchGoogleScrape(query string, pages int) ([]Result, error) {
 	var all []Result
 	for page := 0; page < pages; page++ {
 		start := page * 10
@@ -218,6 +263,56 @@ func parseGoogleResults(body, query string) []Result {
 }
 
 func (f *Finder) SearchBing() ([]Result, error) {
+	if f.bingKey != "" {
+		return f.searchBingAPI()
+	}
+	return f.searchBingScrape()
+}
+
+func (f *Finder) searchBingAPI() ([]Result, error) {
+	var all []Result
+	queries := []string{
+		`"index of" "parent directory"`,
+		`"Index of /" mp4`,
+		`"Index of /" movies`,
+		`intitle:"index of"`,
+	}
+
+	for _, q := range queries {
+		url := fmt.Sprintf("https://api.bing.microsoft.com/v7.0/search?q=%s&count=50",
+			url.QueryEscape(q))
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Ocp-Apim-Subscription-Key", f.bingKey)
+
+		resp, err := f.client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		var bRes bingAPIResponse
+		if json.Unmarshal(body, &bRes) != nil {
+			continue
+		}
+		for _, w := range bRes.WebPages.Value {
+			all = append(all, Result{URL: w.URL, Source: "bing", Title: w.Name})
+		}
+		time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
+	}
+	return all, nil
+}
+
+type bingAPIResponse struct {
+	WebPages struct {
+		Value []struct {
+			URL  string `json:"url"`
+			Name string `json:"name"`
+		} `json:"value"`
+	} `json:"webPages"`
+}
+
+func (f *Finder) searchBingScrape() ([]Result, error) {
 	var all []Result
 	queries := []string{
 		`"index of" "parent directory"`,
@@ -312,7 +407,49 @@ func (f *Finder) SearchDuckDuckGo() ([]Result, error) {
 }
 
 func (f *Finder) SearchShodan() ([]Result, error) {
-	return nil, nil
+	if f.shodanKey == "" {
+		return nil, nil
+	}
+
+	queries := []string{
+		`"Index of /" "Parent Directory"`,
+		`"Directory Listing"`,
+		`"Apache" "Index of"`,
+	}
+
+	var all []Result
+	for _, q := range queries {
+		url := fmt.Sprintf("https://api.shodan.io/shodan/host/search?key=%s&query=%s&limit=100",
+			f.shodanKey, url.QueryEscape(q))
+		req, _ := http.NewRequest("GET", url, nil)
+		resp, err := f.client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		var sRes shodanResponse
+		if json.Unmarshal(body, &sRes) != nil {
+			continue
+		}
+		for _, m := range sRes.Matches {
+			u := fmt.Sprintf("http://%s/", m.IPStr)
+			if m.Port != 80 {
+				u = fmt.Sprintf("http://%s:%d/", m.IPStr, m.Port)
+			}
+			all = append(all, Result{URL: u, Source: "shodan"})
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return all, nil
+}
+
+type shodanResponse struct {
+	Matches []struct {
+		IPStr string `json:"ip_str"`
+		Port  int    `json:"port"`
+	} `json:"matches"`
 }
 
 type aggregator struct {
@@ -494,12 +631,33 @@ func (f *Finder) DiscoverByType(category string) ([]Result, error) {
 	bingLinkRe := regexp.MustCompile(`href="(/ck/[^"]*\bu=([A-Za-z0-9+/=_-]+)[^"]*)"`)
 	ddgRe := regexp.MustCompile(`<a[^>]+class="result__a"[^>]+href="(https?://[^"]+)"`)
 
-	for _, dork := range dorks {
-		results, _ := f.searchGooglePage(dork, 1)
-		for _, r := range results {
-			addUnique(r)
+	if f.googleKey != "" && f.googleCX != "" {
+		for _, dork := range dorks {
+			url := fmt.Sprintf("https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&q=%s",
+				f.googleKey, f.googleCX, url.QueryEscape(dork))
+			req, _ := http.NewRequest("GET", url, nil)
+			resp, err := f.client.Do(req)
+			if err != nil {
+				continue
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			var gRes googleAPIResponse
+			if json.Unmarshal(body, &gRes) == nil {
+				for _, item := range gRes.Items {
+					addUnique(Result{URL: item.Link, Source: "google", Title: item.Title})
+				}
+			}
+			time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
 		}
-		time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
+	} else {
+		for _, dork := range dorks {
+			results, _ := f.searchGoogleScrape(dork, 1)
+			for _, r := range results {
+				addUnique(r)
+			}
+			time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
+		}
 	}
 
 	bingQueries := []string{
@@ -507,38 +665,60 @@ func (f *Finder) DiscoverByType(category string) ([]Result, error) {
 		fmt.Sprintf(`intitle:"index of" %s`, category),
 		fmt.Sprintf(`"Index of /" %ss -inurl:(php|asp|jsp)`, category),
 	}
-	for _, q := range bingQueries {
-		searchURL := fmt.Sprintf("https://www.bing.com/search?q=%s", url.QueryEscape(q))
-		req, _ := http.NewRequest("GET", searchURL, nil)
-		req.Header.Set("User-Agent", f.randomUA())
-		req.Header.Set("Accept", "text/html,application/xhtml+xml")
-
-		resp, err := f.client.Do(req)
-		if err != nil {
-			continue
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		matches := bingLinkRe.FindAllStringSubmatch(string(body), -1)
-		for _, m := range matches {
-			if len(m) < 3 {
+	if f.bingKey != "" {
+		for _, q := range bingQueries {
+			url := fmt.Sprintf("https://api.bing.microsoft.com/v7.0/search?q=%s&count=50",
+				url.QueryEscape(q))
+			req, _ := http.NewRequest("GET", url, nil)
+			req.Header.Set("Ocp-Apim-Subscription-Key", f.bingKey)
+			resp, err := f.client.Do(req)
+			if err != nil {
 				continue
 			}
-			decoded, err := base64.StdEncoding.DecodeString(m[2])
-			if err != nil {
-				decoded, err = base64.RawStdEncoding.DecodeString(m[2])
-				if err != nil {
-					continue
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			var bRes bingAPIResponse
+			if json.Unmarshal(body, &bRes) == nil {
+				for _, w := range bRes.WebPages.Value {
+					addUnique(Result{URL: w.URL, Source: "bing", Title: w.Name})
 				}
 			}
-			decodedURL := string(decoded)
-			if !strings.HasPrefix(decodedURL, "http") {
+			time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
+		}
+	} else {
+		for _, q := range bingQueries {
+			searchURL := fmt.Sprintf("https://www.bing.com/search?q=%s", url.QueryEscape(q))
+			req, _ := http.NewRequest("GET", searchURL, nil)
+			req.Header.Set("User-Agent", f.randomUA())
+			req.Header.Set("Accept", "text/html,application/xhtml+xml")
+
+			resp, err := f.client.Do(req)
+			if err != nil {
 				continue
 			}
-			addUnique(Result{URL: decodedURL, Source: "bing"})
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			matches := bingLinkRe.FindAllStringSubmatch(string(body), -1)
+			for _, m := range matches {
+				if len(m) < 3 {
+					continue
+				}
+				decoded, err := base64.StdEncoding.DecodeString(m[2])
+				if err != nil {
+					decoded, err = base64.RawStdEncoding.DecodeString(m[2])
+					if err != nil {
+						continue
+					}
+				}
+				decodedURL := string(decoded)
+				if !strings.HasPrefix(decodedURL, "http") {
+					continue
+				}
+				addUnique(Result{URL: decodedURL, Source: "bing"})
+			}
+			time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
 		}
-		time.Sleep(time.Duration(1+rand.Intn(2)) * time.Second)
 	}
 
 	ddgQueries := []string{
