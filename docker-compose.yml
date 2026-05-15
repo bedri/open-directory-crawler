@@ -1,0 +1,15 @@
+services:
+  odk:
+    build: .
+    container_name: odk
+    restart: unless-stopped
+    ports:
+      - "40444:40444"
+    volumes:
+      - odk-data:/data
+      - ./.env:/app/.env:ro
+    environment:
+      - TZ=Europe/Istanbul
+
+volumes:
+  odk-data:

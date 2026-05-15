@@ -1,0 +1,16 @@
+odk
+odk.db/
+odk-reader.db/
+*.log
+.env
+.git/
+bots/
+kutuphane/
+public_html/
+devel/
+*.sql
+*.sql.bz2
+*.json
+*.tar.bz2
+*.zip
+node_modules/
